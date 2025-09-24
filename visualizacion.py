@@ -20,7 +20,6 @@ color_auto3 = (80, 200, 130)
 color_auto4 = (190, 90, 220)
 color_auto5 = (200, 200, 200)
 
-# Geometría base
 centro_x, centro_y = ancho // 2, alto // 2
 ancho_via = 200
 mitad_via = ancho_via // 2
@@ -41,16 +40,15 @@ def dibujar_lineas_centrales():
     espacios = 20
     grosor = 5
 
-    # Vertical arriba
     for y in range(0, centro_y - mitad_via - 50, longitud_linea + espacios):
         pygame.draw.line(ventana, blanco, (centro_x, y), (centro_x, y + longitud_linea), grosor)
-    # Vertical abajo
+
     for y in range(centro_y + mitad_via + 70, alto, longitud_linea + espacios):
         pygame.draw.line(ventana, blanco, (centro_x, y), (centro_x, y + longitud_linea), grosor)
-    # Horizontal izquierda
+
     for x in range(0, centro_x - mitad_via - 50, longitud_linea + espacios):
         pygame.draw.line(ventana, blanco, (x, centro_y), (x + longitud_linea, centro_y), grosor)
-    # Horizontal derecha
+
     for x in range(centro_x + mitad_via + 70, ancho, longitud_linea + espacios):
         pygame.draw.line(ventana, blanco, (x, centro_y), (x + longitud_linea, centro_y), grosor)
 
