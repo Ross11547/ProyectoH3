@@ -16,11 +16,12 @@ rojo = (220, 70, 70)
 amarillo = (245, 205, 70)
 verde = (70, 200, 110)
 
-colores_autos = [
-    (240, 80, 60), (80, 160, 240),
-    (80, 200, 130), (190, 90, 220),
-    (200, 200, 200)
-]
+# Colores extra
+asfalto = (50, 50, 50)
+texto_blanco = (255, 255, 255)
+texto_amarillo = (255, 220, 80)
+panel_bg = (0, 0, 0, 150)  # fondo semitransparente para métricas
+
 
 centro_x, centro_y = ancho // 2, alto // 2
 ancho_via = 200
@@ -43,26 +44,74 @@ rutas = {
     "Oeste": ["Este", "Sur", "Norte"]
 }
 
+# Imagen de Autos Ordenados de aca deben de sacar los
+pygame.image.load('assets/imagen/CarUp.png')
+pygame.image.load('assets/imagen/Carup2.png')
+pygame.image.load('assets/imagen/carLef1.png')
+pygame.image.load('assets/imagen/CarLeft.png')
+pygame.image.load('assets/imagen/carDo1.png')
+pygame.image.load('assets/imagen/carDo2.png')
+pygame.image.load('assets/imagen/carrigth1.png')
+pygame.image.load('assets/imagen/CarRigth.png')
+
+# Cargar y escalar imágenes de autos
+# Autos hacia arriba
+cars_up = [
+    pygame.transform.scale(pygame.image.load('assets/imagen/CarUp.png'), (40, 70)),
+    pygame.transform.scale(pygame.image.load('assets/imagen/Carup2.png'), (40, 70))
+]
+
+# Autos hacia abajo
+cars_down = [
+    pygame.transform.scale(pygame.image.load('assets/imagen/carDo1.png'), (40, 70)),
+    pygame.transform.scale(pygame.image.load('assets/imagen/carDo2.png'), (40, 70))
+]
+
+# Autos hacia la izquierda
+cars_left = [
+    pygame.transform.scale(pygame.image.load('assets/imagen/CarLeft.png'), (70, 40)),
+    pygame.transform.scale(pygame.image.load('assets/imagen/carLef1.png'), (70, 40))
+]
+
+# Autos hacia la derecha
+cars_right = [
+    pygame.transform.scale(pygame.image.load('assets/imagen/CarRigth.png'), (70, 40)),
+    pygame.transform.scale(pygame.image.load('assets/imagen/carrigth1.png'), (70, 40))
+]
+
+
 def generar_auto(id_auto, entrada):
     salida = random.choice(rutas[entrada])
     velocidad = random.randint(30, 60)
+
+    if entrada == "Norte":
+        imagen = random.choice(cars_down)   # bajan hacia el sur
+    elif entrada == "Sur":
+        imagen = random.choice(cars_up)     # suben hacia el norte
+    elif entrada == "Oeste":
+        imagen = random.choice(cars_right)  # van a la derecha
+    else:  # Este
+        imagen = random.choice(cars_left)   # van a la izquierda
+
     return {
         "id": id_auto,
         "entrada": entrada,
         "salida": salida,
         "velocidad": velocidad,
-        "color": random.choice(colores_autos)
+        "imagen": imagen
     }
+
 
 def generar_carriles():
     carriles = {}
     id_auto = 1
     for entrada in rutas.keys():
-        num_autos = random.randint(1, 7)
+        num_autos = random.randint(2, 5)  # menos autos, pero más realista
         autos = [generar_auto(id_auto + i, entrada) for i in range(num_autos)]
         carriles[entrada] = autos
         id_auto += num_autos
     return carriles
+
 
 carriles = generar_carriles()
 
@@ -150,6 +199,7 @@ def dibujar_semaforo(x, y, vertical=True, color_activo="rojo"):
     color_r = rojo if color_activo == "rojo" else (120, 60, 60)
     color_a = amarillo if color_activo == "amarillo" else (120, 110, 60)
     color_v = verde if color_activo == "verde" else (60, 100, 60)
+
     if vertical:
         pygame.draw.circle(ventana, color_r, (caja.centerx, caja.top + 10), radio)
         pygame.draw.circle(ventana, color_a, (caja.centerx, caja.centery), radio)
@@ -159,33 +209,36 @@ def dibujar_semaforo(x, y, vertical=True, color_activo="rojo"):
         pygame.draw.circle(ventana, color_a, (caja.centerx, caja.centery), radio)
         pygame.draw.circle(ventana, color_v, (caja.right - 10, caja.centery), radio)
 
-def dibujar_auto(x, y, direccion, color):
-    largo_auto, ancho_auto = 65, 40
-    if direccion in ("N", "S"):
-        rect = pygame.Rect(x - ancho_auto // 2, y - largo_auto // 2, ancho_auto, largo_auto)
-    else:
-        rect = pygame.Rect(x - largo_auto // 2, y - ancho_auto // 2, largo_auto, ancho_auto)
-    pygame.draw.rect(ventana, color, rect, border_radius=2)
+
+
 
 def dibujar_autos(carriles):
+    separacion = 120  # más espacio entre autos
     for entrada, autos in carriles.items():
         for i, auto in enumerate(autos):
+            img = auto["imagen"]
+            rect = img.get_rect()
+
             if entrada == "Oeste":
-                x = pare_oeste - 60 * (i + 1)
-                y = centro_y - desfase_carril
-                dibujar_auto(x, y, "E", auto["color"])
+                x = pare_oeste - separacion * (i + 1)
+                y = centro_y - desfase_carril if i % 2 == 0 else centro_y + desfase_carril
+                rect.center = (x, y)
             elif entrada == "Este":
-                x = pare_este + 60 * (i + 1)
-                y = centro_y + desfase_carril
-                dibujar_auto(x, y, "O", auto["color"])
+                x = pare_este + separacion * (i + 1)
+                y = centro_y + desfase_carril if i % 2 == 0 else centro_y - desfase_carril
+                rect.center = (x, y)
             elif entrada == "Norte":
-                x = centro_x - desfase_carril
-                y = pare_norte - 60 * (i + 1)
-                dibujar_auto(x, y, "S", auto["color"])
+                x = centro_x - desfase_carril if i % 2 == 0 else centro_x + desfase_carril
+                y = pare_norte - separacion * (i + 1)
+                rect.center = (x, y)
             elif entrada == "Sur":
-                x = centro_x + desfase_carril
-                y = pare_sur + 60 * (i + 1)
-                dibujar_auto(x, y, "N", auto["color"])
+                x = centro_x + desfase_carril if i % 2 == 0 else centro_x - desfase_carril
+                y = pare_sur + separacion * (i + 1)
+                rect.center = (x, y)
+
+            ventana.blit(img, rect)
+
+
 
 def dibujar_conteo_autos(carriles):
     font = pygame.font.SysFont(None, 28)
@@ -199,8 +252,42 @@ def dibujar_conteo_autos(carriles):
     info = f"Quedan: {restante}s"
     ventana.blit(font.render(info, True, blanco), (10, y))
 
+def dibujar_metricas(carriles):
+    font_titulo = pygame.font.SysFont("Arial", 28, bold=True)
+    font_texto = pygame.font.SysFont("Arial", 22)
+
+    # Panel negro semitransparente
+    panel = pygame.Surface((280, 220), pygame.SRCALPHA)
+    panel.fill(panel_bg)
+
+    # Datos
+    vertical_count, horizontal_count = contar_orientaciones(carriles)
+    total_autos = sum(len(autos) for autos in carriles.values())
+    restante = max(0, int(duracion_actual - (time.time() - tiempo_cambio)))
+    luz_vertical = semaforos["vertical"]
+    luz_horizontal = semaforos["horizontal"]
+
+    # Escribir datos
+    y = 10
+    panel.blit(font_titulo.render("📊 Métricas", True, texto_amarillo), (10, y))
+    y += 35
+    panel.blit(font_texto.render(f"Total autos: {total_autos}", True, texto_blanco), (10, y))
+    y += 28
+    panel.blit(font_texto.render(f"Vertical: {vertical_count}", True, texto_blanco), (10, y))
+    y += 28
+    panel.blit(font_texto.render(f"Horizontal: {horizontal_count}", True, texto_blanco), (10, y))
+    y += 28
+    panel.blit(font_texto.render(f"Semáforo V: {luz_vertical}", True, texto_blanco), (10, y))
+    y += 28
+    panel.blit(font_texto.render(f"Semáforo H: {luz_horizontal}", True, texto_blanco), (10, y))
+    y += 28
+    panel.blit(font_texto.render(f"⏱ Quedan: {restante}s", True, texto_amarillo), (10, y))
+
+    # Dibujar en pantalla (arriba derecha)
+    ventana.blit(panel, (ancho - 290, 10))
+
 def dibujar_escena(carriles):
-    ventana.fill(verde_oscuro)
+    ventana.fill(asfalto)  # mejor color de fondo
     pygame.draw.rect(ventana, gris, recta_vertical)
     pygame.draw.rect(ventana, gris, recta_horizontal)
     dibujar_lineas_centrales()
@@ -211,7 +298,8 @@ def dibujar_escena(carriles):
     dibujar_semaforo(centro_x - mitad_via - 60, centro_y + mitad_via + 8,  False, semaforos["horizontal"])
     dibujar_semaforo(centro_x + mitad_via + 8,  centro_y - mitad_via - 32, False, semaforos["horizontal"])
     dibujar_autos(carriles)
-    dibujar_conteo_autos(carriles)
+    dibujar_metricas(carriles)  # 👈 agregado
+
 
 reloj = pygame.time.Clock()
 print(f"Inicial -> verde: {'vertical' if semaforos['vertical']=='verde' else 'horizontal'} | duracion: {duracion_actual}s")
