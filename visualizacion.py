@@ -4,7 +4,7 @@ import time
 import random
 
 pygame.init()
-
+#dimenciones de el exe
 ancho, alto = 1100, 700
 ventana = pygame.display.set_mode((ancho, alto))
 pygame.display.set_caption("Simulación de tráfico – Semana 1")
