@@ -23,8 +23,6 @@ grosor_separador_px = 3
 grosor_guia_px = 3
 margen_linea_pare = 6
 margen_pare_px = 55
-tiempo_verde_america = 10
-tiempo_verde_libertador = 10
 tiempo_amarillo = 3
 
 intervalo_aparicion_seg = 5
@@ -89,8 +87,8 @@ ancho_lado_px = ancho_estacionar_px + carriles_por_sentido * ancho_carril_px
 ancho_via_px = 2 * ancho_lado_px
 media_via_px = ancho_via_px // 2
 
-rect_libertador = pygame.Rect(cruce_x - media_via_px, 0, ancho_via_px, alto_ventana)     # norte-sur
-rect_america = pygame.Rect(0, cruce_y - media_via_px, ancho_ventana, ancho_via_px)       # oeste-este
+rect_libertador = pygame.Rect(cruce_x - media_via_px, 0, ancho_via_px, alto_ventana)
+rect_america = pygame.Rect(0, cruce_y - media_via_px, ancho_ventana, ancho_via_px)
 
 y_america_sup = cruce_y - media_via_px + ancho_estacionar_px
 y_america_inf = cruce_y + media_via_px - ancho_estacionar_px
@@ -194,11 +192,22 @@ def escalar_sprites():
 
 escalar_sprites()
 
+# Parámetros para ajuste dinámico
+min_green = 3
+max_green = 60
+reduction_per_opposing_car = 2  # segundos que reduce por cada auto en la dirección opuesta
+
 fase = 0
 tiempo_en_fase = 0.0
 
+# tiempos base y ajustados (inicializados luego en main)
+tiempo_verde_america_base = 6
+tiempo_verde_libertador_base = 6
+tiempo_verde_america = 6
+tiempo_verde_libertador = 6
+
 def avanzar_fase(dt):
-    global fase, tiempo_en_fase
+    global fase, tiempo_en_fase, tiempo_verde_america, tiempo_verde_libertador
     tiempo_en_fase += dt
 
     if fase == 0 and tiempo_en_fase >= tiempo_verde_america:
@@ -207,12 +216,44 @@ def avanzar_fase(dt):
     elif fase == 1 and tiempo_en_fase >= tiempo_amarillo:
         fase = 2
         tiempo_en_fase = 0.0
+        # calcular base y ajustado para Libertador (verde)
+        conteos = contar_conteos()
+        total_lib = conteos["norte"] + conteos["sur"]
+        total_america = conteos["oeste"] + conteos["este"]
+        # base: 3s por auto
+        base = max(total_lib * 3, min_green)
+        reduction = total_america * reduction_per_opposing_car
+        ajustado = max(min_green, base - min(reduction, base - min_green))
+        ajustado = min(max_green, ajustado)
+        # asignar globales
+        set_libertador_times(base, ajustado)
     elif fase == 2 and tiempo_en_fase >= tiempo_verde_libertador:
         fase = 3
         tiempo_en_fase = 0.0
     elif fase == 3 and tiempo_en_fase >= tiempo_amarillo:
         fase = 0
         tiempo_en_fase = 0.0
+        # calcular base y ajustado para America (verde)
+        conteos = contar_conteos()
+        total_america = conteos["oeste"] + conteos["este"]
+        total_lib = conteos["norte"] + conteos["sur"]
+        base = max(total_america * 3, min_green)
+        reduction = total_lib * reduction_per_opposing_car
+        ajustado = max(min_green, base - min(reduction, base - min_green))
+        ajustado = min(max_green, ajustado)
+        set_america_times(base, ajustado)
+
+def set_libertador_times(base, ajustado):
+    global tiempo_verde_libertador_base, tiempo_verde_libertador
+    tiempo_verde_libertador_base = base
+    tiempo_verde_libertador = ajustado
+    # reset tiempo_en_fase para empezar a contar el nuevo verde
+    # tiempo_en_fase = 0.0  # ya se resetea en avanzar_fase
+
+def set_america_times(base, ajustado):
+    global tiempo_verde_america_base, tiempo_verde_america
+    tiempo_verde_america_base = base
+    tiempo_verde_america = ajustado
 
 def estado_semaforo():
     if fase == 0:
@@ -236,11 +277,11 @@ class Auto:
     def __init__(self, x_inicial, y_inicial, direccion, vel_px_s):
         self.x = float(x_inicial)
         self.y = float(y_inicial)
-        self.direccion = direccion  # "e", "o", "n", "s"
+        self.direccion = direccion
         self.vel_px_por_frame = float(vel_px_s) / float(fps)
         opciones = sprites[direccion]
         self.img = opciones[random.randint(0, len(opciones) - 1)]
-        self.entro_cruce = False  # para no frenar dentro del cruce
+        self.entro_cruce = False
 
     def actualizar(self, auto_delante):
         puede_avanzar = True
@@ -259,7 +300,7 @@ class Auto:
             punta = self.y + mitad_largo
             pos_pare = linea_pare_norte
             pos_salida = salida_lib_sur
-        else:  # "n"
+        else:
             punta = self.y - mitad_largo
             pos_pare = linea_pare_sur
             pos_salida = salida_lib_norte
@@ -312,6 +353,7 @@ class Auto:
                     self.entro_cruce = True
                 if self.direccion == "n" and self.y - mitad_largo <= pos_pare:
                     self.entro_cruce = True
+
     def dibujar(self, surf):
         rect = self.img.get_rect(center=(int(self.x), int(self.y)))
         surf.blit(self.img, rect)
@@ -357,6 +399,7 @@ def ajustar_por_ultimo(lista, direccion, x0, y0):
         if direccion == "n" and y0 < (u.y + distancia_min_autos_px):
             y0 = u.y + distancia_min_autos_px
         return x0, y0
+    return x0, y0
 
 def limitar_margen_visible(x0, y0, direccion):
     margen = 2 * largo_auto_px - 2
@@ -705,6 +748,68 @@ def dibujar_estacionamiento():
             ventana.blit(img_v, img_v.get_rect(center=(int(cx), int(cy))))
         i += 1
 
+def contar_conteos():
+    return {
+        "oeste": sum(len(colas["oeste"][i]) for i in range(carriles_por_sentido)),
+        "este":  sum(len(colas["este"][i])  for i in range(carriles_por_sentido)),
+        "norte": sum(len(colas["norte"][i]) for i in range(carriles_por_sentido)),
+        "sur":   sum(len(colas["sur"][i])   for i in range(carriles_por_sentido))
+    }
+
+def dibujar_panel_info():
+    # panel lateral derecho
+    panel_w = 260
+    panel_h = 200
+    panel_x = ancho_ventana - panel_w - 10
+    panel_y = 10
+    panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
+    # fondo semitransparente
+    s = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+    s.fill((20, 20, 20, 180))
+    ventana.blit(s, (panel_x, panel_y))
+    pygame.draw.rect(ventana, blanco, panel_rect, 2)
+
+    font = pygame.font.SysFont(None, 20)
+    conteos = contar_conteos()
+    lines = [
+        f"Conteos por carril:",
+        f" Oeste:  {conteos['oeste']} autos",
+        f" Este:   {conteos['este']} autos",
+        f" Norte:  {conteos['norte']} autos",
+        f" Sur:    {conteos['sur']} autos",
+        "",
+        f"America base:      {tiempo_verde_america_base}s",
+        f"America ajustado:  {int(tiempo_verde_america)}s",
+        f"Libertador base:   {tiempo_verde_libertador_base}s",
+        f"Libertador ajust:  {int(tiempo_verde_libertador)}s",
+        ""
+    ]
+
+    # tiempo restante
+    if fase == 0:
+        restante = max(0, int(tiempo_verde_america - tiempo_en_fase))
+        lines.append(f"Fase: America VERDE")
+        lines.append(f"Queda: {restante}s")
+    elif fase == 1:
+        restante = max(0, int(tiempo_amarillo - tiempo_en_fase))
+        lines.append("Fase: Amarillo America")
+        lines.append(f"Queda: {restante}s")
+    elif fase == 2:
+        restante = max(0, int(tiempo_verde_libertador - tiempo_en_fase))
+        lines.append("Fase: Libertador VERDE")
+        lines.append(f"Queda: {restante}s")
+    else:
+        restante = max(0, int(tiempo_amarillo - tiempo_en_fase))
+        lines.append("Fase: Amarillo Libertador")
+        lines.append(f"Queda: {restante}s")
+
+    y = panel_y + 8
+    x = panel_x + 8
+    for ln in lines:
+        img = font.render(ln, True, blanco)
+        ventana.blit(img, (x, y))
+        y += 18
+
 def pintar_escena():
     pintar_base()
     pintar_bordes_y_separadores()
@@ -719,10 +824,27 @@ def pintar_escena():
     dibujar_estacionamiento()
     dibujar_autos()
     pintar_semaforos()
+    dibujar_panel_info()
 
 def main():
+    global tiempo_verde_america_base, tiempo_verde_libertador_base, tiempo_verde_america, tiempo_verde_libertador, tiempo_en_fase
     poblar_estacionamiento()
     sembrar_autos_iniciales()
+
+    # calcular bases y ajustados iniciales
+    conteos = contar_conteos()
+    total_america = conteos["oeste"] + conteos["este"]
+    total_lib = conteos["norte"] + conteos["sur"]
+    tiempo_verde_america_base = max(total_america * 3, min_green)
+    tiempo_verde_libertador_base = max(total_lib * 3, min_green)
+
+    reduction_L = total_america * reduction_per_opposing_car
+    tiempo_verde_libertador = min(max_green, max(min_green, tiempo_verde_libertador_base - min(reduction_L, tiempo_verde_libertador_base - min_green)))
+
+    reduction_A = total_lib * reduction_per_opposing_car
+    tiempo_verde_america = min(max_green, max(min_green, tiempo_verde_america_base - min(reduction_A, tiempo_verde_america_base - min_green)))
+
+    print(f"Inicial: base_A={tiempo_verde_america_base}s adj_A={tiempo_verde_america}s | base_L={tiempo_verde_libertador_base}s adj_L={tiempo_verde_libertador}s")
 
     while True:
         dt = reloj.tick(fps) / 1000.0
@@ -734,6 +856,7 @@ def main():
         avanzar_fase(dt)
         intentar_aparicion(dt)
         actualizar_autos()
+        ventana.fill((0,0,0))
         pintar_escena()
         pygame.display.flip()
 
