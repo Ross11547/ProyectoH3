@@ -192,15 +192,15 @@ def escalar_sprites():
 
 escalar_sprites()
 
-
+# Parámetros para ajuste dinámico
 min_green = 3
 max_green = 60
-reduction_per_opposing_car = 2  
+reduction_per_opposing_car = 2  # segundos que reduce por cada auto en la dirección opuesta
 
 fase = 0
 tiempo_en_fase = 0.0
 
-
+# tiempos base y ajustados (inicializados luego en main)
 tiempo_verde_america_base = 6
 tiempo_verde_libertador_base = 6
 tiempo_verde_america = 6
@@ -216,30 +216,44 @@ def avanzar_fase(dt):
     elif fase == 1 and tiempo_en_fase >= tiempo_amarillo:
         fase = 2
         tiempo_en_fase = 0.0
-      
+        # calcular base y ajustado para Libertador (verde)
         conteos = contar_conteos()
         total_lib = conteos["norte"] + conteos["sur"]
         total_america = conteos["oeste"] + conteos["este"]
-        tiempo_verde_libertador_base = max(total_lib * 3, min_green)
+        # base: 3s por auto
+        base = max(total_lib * 3, min_green)
         reduction = total_america * reduction_per_opposing_car
-        ajustado = max(min_green, tiempo_verde_libertador_base - min(reduction, tiempo_verde_libertador_base - min_green))
-        tiempo_verde_libertador = min(max_green, ajustado)
-        print(f"Entrando fase 2 (Libertador VERDE): base={tiempo_verde_libertador_base}s, opp_america={total_america}, ajustado={tiempo_verde_libertador}s")
+        ajustado = max(min_green, base - min(reduction, base - min_green))
+        ajustado = min(max_green, ajustado)
+        # asignar globales
+        set_libertador_times(base, ajustado)
     elif fase == 2 and tiempo_en_fase >= tiempo_verde_libertador:
         fase = 3
         tiempo_en_fase = 0.0
     elif fase == 3 and tiempo_en_fase >= tiempo_amarillo:
         fase = 0
         tiempo_en_fase = 0.0
-
+        # calcular base y ajustado para America (verde)
         conteos = contar_conteos()
         total_america = conteos["oeste"] + conteos["este"]
         total_lib = conteos["norte"] + conteos["sur"]
-        tiempo_verde_america_base = max(total_america * 3, min_green)
+        base = max(total_america * 3, min_green)
         reduction = total_lib * reduction_per_opposing_car
-        ajustado = max(min_green, tiempo_verde_america_base - min(reduction, tiempo_verde_america_base - min_green))
-        tiempo_verde_america = min(max_green, ajustado)
-        print(f"Entrando fase 0 (America VERDE): base={tiempo_verde_america_base}s, opp_libertador={total_lib}, ajustado={tiempo_verde_america}s")
+        ajustado = max(min_green, base - min(reduction, base - min_green))
+        ajustado = min(max_green, ajustado)
+        set_america_times(base, ajustado)
+
+def set_libertador_times(base, ajustado):
+    global tiempo_verde_libertador_base, tiempo_verde_libertador
+    tiempo_verde_libertador_base = base
+    tiempo_verde_libertador = ajustado
+    # reset tiempo_en_fase para empezar a contar el nuevo verde
+    # tiempo_en_fase = 0.0  # ya se resetea en avanzar_fase
+
+def set_america_times(base, ajustado):
+    global tiempo_verde_america_base, tiempo_verde_america
+    tiempo_verde_america_base = base
+    tiempo_verde_america = ajustado
 
 def estado_semaforo():
     if fase == 0:
@@ -742,40 +756,59 @@ def contar_conteos():
         "sur":   sum(len(colas["sur"][i])   for i in range(carriles_por_sentido))
     }
 
-def dibujar_conteo_autos():
-    global tiempo_verde_america_base, tiempo_verde_libertador_base, tiempo_verde_america, tiempo_verde_libertador
-    font = pygame.font.SysFont(None, 22)
+def dibujar_panel_info():
+    # panel lateral derecho
+    panel_w = 260
+    panel_h = 200
+    panel_x = ancho_ventana - panel_w - 10
+    panel_y = 10
+    panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
+    # fondo semitransparente
+    s = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+    s.fill((20, 20, 20, 180))
+    ventana.blit(s, (panel_x, panel_y))
+    pygame.draw.rect(ventana, blanco, panel_rect, 2)
+
+    font = pygame.font.SysFont(None, 20)
     conteos = contar_conteos()
-    y = 10
-    for k, v in conteos.items():
-        txt = f"{k}: {v} autos"
-        img = font.render(txt, True, blanco)
-        ventana.blit(img, (10, y))
-        y += 20
+    lines = [
+        f"Conteos por carril:",
+        f" Oeste:  {conteos['oeste']} autos",
+        f" Este:   {conteos['este']} autos",
+        f" Norte:  {conteos['norte']} autos",
+        f" Sur:    {conteos['sur']} autos",
+        "",
+        f"America base:      {tiempo_verde_america_base}s",
+        f"America ajustado:  {int(tiempo_verde_america)}s",
+        f"Libertador base:   {tiempo_verde_libertador_base}s",
+        f"Libertador ajust:  {int(tiempo_verde_libertador)}s",
+        ""
+    ]
 
-    txt_base_a = f"America base: {tiempo_verde_america_base}s"
-    txt_adj_a = f"America ajustado: {int(tiempo_verde_america)}s"
-    txt_base_l = f"Libertador base: {tiempo_verde_libertador_base}s"
-    txt_adj_l = f"Libertador ajustado: {int(tiempo_verde_libertador)}s"
-    ventana.blit(font.render(txt_base_a, True, blanco), (10, y)); y += 18
-    ventana.blit(font.render(txt_adj_a, True, blanco), (10, y)); y += 18
-    ventana.blit(font.render(txt_base_l, True, blanco), (10, y)); y += 18
-    ventana.blit(font.render(txt_adj_l, True, blanco), (10, y)); y += 18
-
-
+    # tiempo restante
     if fase == 0:
         restante = max(0, int(tiempo_verde_america - tiempo_en_fase))
-        info = f"America VERDE - queda: {restante}s"
+        lines.append(f"Fase: America VERDE")
+        lines.append(f"Queda: {restante}s")
     elif fase == 1:
         restante = max(0, int(tiempo_amarillo - tiempo_en_fase))
-        info = f"Amarillo America - queda: {restante}s"
+        lines.append("Fase: Amarillo America")
+        lines.append(f"Queda: {restante}s")
     elif fase == 2:
         restante = max(0, int(tiempo_verde_libertador - tiempo_en_fase))
-        info = f"Libertador VERDE - queda: {restante}s"
+        lines.append("Fase: Libertador VERDE")
+        lines.append(f"Queda: {restante}s")
     else:
         restante = max(0, int(tiempo_amarillo - tiempo_en_fase))
-        info = f"Amarillo Libertador - queda: {restante}s"
-    ventana.blit(font.render(info, True, blanco), (10, y + 6))
+        lines.append("Fase: Amarillo Libertador")
+        lines.append(f"Queda: {restante}s")
+
+    y = panel_y + 8
+    x = panel_x + 8
+    for ln in lines:
+        img = font.render(ln, True, blanco)
+        ventana.blit(img, (x, y))
+        y += 18
 
 def pintar_escena():
     pintar_base()
@@ -791,37 +824,19 @@ def pintar_escena():
     dibujar_estacionamiento()
     dibujar_autos()
     pintar_semaforos()
-    dibujar_conteo_autos()
-
-def actualizar_lista(lista):
-    i = 0
-    while i < len(lista):
-        auto = lista[i]
-        auto_delante = lista[i - 1] if i > 0 else None
-        auto.actualizar(auto_delante)
-        i += 1
-    nueva = []
-    j = 0
-    while j < len(lista):
-        a = lista[j]
-        if (-2 * largo_auto_px < a.x < ancho_ventana + 2 * largo_auto_px) and \
-           (-2 * largo_auto_px < a.y < alto_ventana + 2 * largo_auto_px):
-            nueva.append(a)
-        j += 1
-    return nueva
+    dibujar_panel_info()
 
 def main():
     global tiempo_verde_america_base, tiempo_verde_libertador_base, tiempo_verde_america, tiempo_verde_libertador, tiempo_en_fase
     poblar_estacionamiento()
     sembrar_autos_iniciales()
 
-
+    # calcular bases y ajustados iniciales
     conteos = contar_conteos()
     total_america = conteos["oeste"] + conteos["este"]
     total_lib = conteos["norte"] + conteos["sur"]
     tiempo_verde_america_base = max(total_america * 3, min_green)
     tiempo_verde_libertador_base = max(total_lib * 3, min_green)
-
 
     reduction_L = total_america * reduction_per_opposing_car
     tiempo_verde_libertador = min(max_green, max(min_green, tiempo_verde_libertador_base - min(reduction_L, tiempo_verde_libertador_base - min_green)))
