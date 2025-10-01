@@ -192,15 +192,15 @@ def escalar_sprites():
 
 escalar_sprites()
 
-# Parámetros para ajuste dinámico
+
 min_green = 3
 max_green = 60
-reduction_per_opposing_car = 2  # segundos que reduce por cada auto en la dirección opuesta
+reduction_per_opposing_car = 2  
 
 fase = 0
 tiempo_en_fase = 0.0
 
-# guardamos base y ajustado
+
 tiempo_verde_america_base = 6
 tiempo_verde_libertador_base = 6
 tiempo_verde_america = 6
@@ -216,7 +216,7 @@ def avanzar_fase(dt):
     elif fase == 1 and tiempo_en_fase >= tiempo_amarillo:
         fase = 2
         tiempo_en_fase = 0.0
-        # calcular base y ajustado para Libertador (verde)
+      
         conteos = contar_conteos()
         total_lib = conteos["norte"] + conteos["sur"]
         total_america = conteos["oeste"] + conteos["este"]
@@ -231,7 +231,7 @@ def avanzar_fase(dt):
     elif fase == 3 and tiempo_en_fase >= tiempo_amarillo:
         fase = 0
         tiempo_en_fase = 0.0
-        # calcular base y ajustado para America (verde)
+
         conteos = contar_conteos()
         total_america = conteos["oeste"] + conteos["este"]
         total_lib = conteos["norte"] + conteos["sur"]
@@ -753,7 +753,6 @@ def dibujar_conteo_autos():
         ventana.blit(img, (10, y))
         y += 20
 
-    # Mostrar tiempos base y ajustados
     txt_base_a = f"America base: {tiempo_verde_america_base}s"
     txt_adj_a = f"America ajustado: {int(tiempo_verde_america)}s"
     txt_base_l = f"Libertador base: {tiempo_verde_libertador_base}s"
@@ -763,7 +762,7 @@ def dibujar_conteo_autos():
     ventana.blit(font.render(txt_base_l, True, blanco), (10, y)); y += 18
     ventana.blit(font.render(txt_adj_l, True, blanco), (10, y)); y += 18
 
-    # tiempo restante según fase
+
     if fase == 0:
         restante = max(0, int(tiempo_verde_america - tiempo_en_fase))
         info = f"America VERDE - queda: {restante}s"
@@ -811,20 +810,19 @@ def actualizar_lista(lista):
         j += 1
     return nueva
 
-# inicializar semáforo dinámico según conteo inicial (3 segundos por auto)
 def main():
     global tiempo_verde_america_base, tiempo_verde_libertador_base, tiempo_verde_america, tiempo_verde_libertador, tiempo_en_fase
     poblar_estacionamiento()
     sembrar_autos_iniciales()
 
-    # calcular bases y ajustados iniciales
+
     conteos = contar_conteos()
     total_america = conteos["oeste"] + conteos["este"]
     total_lib = conteos["norte"] + conteos["sur"]
     tiempo_verde_america_base = max(total_america * 3, min_green)
     tiempo_verde_libertador_base = max(total_lib * 3, min_green)
 
-    # aplicar reducción inversa: si muchos en America, reducir Libertador y viceversa
+
     reduction_L = total_america * reduction_per_opposing_car
     tiempo_verde_libertador = min(max_green, max(min_green, tiempo_verde_libertador_base - min(reduction_L, tiempo_verde_libertador_base - min_green)))
 
