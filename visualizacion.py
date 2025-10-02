@@ -1,226 +1,902 @@
+import os
 import sys
-import pygame
-import time
 import random
+import pygame
+import math
+import threading
+import time
+import matplotlib
+matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
+from collections import deque
 
 pygame.init()
 
-ancho, alto = 1100, 700
-ventana = pygame.display.set_mode((ancho, alto))
-pygame.display.set_caption("Simulación de tráfico – Semana 1")
+ancho_ventana = 1100
+alto_ventana = 700
+fps = 60
 
-verde_oscuro = (0, 100, 0)
-gris = (160, 160, 160)
+escala_px_por_metro = 8
+def metros_a_pixeles(m):
+    return int(m * escala_px_por_metro)
+
+ancho_carril_m = 5
+ancho_estacionar_m = 5
+carriles_por_sentido = 2
+largo_tramo_m = 3
+espacio_tramo_m = 3
+grosor_borde_px = 3
+grosor_separador_px = 3
+grosor_guia_px = 3
+margen_linea_pare = 6
+margen_pare_px = 55
+tiempo_amarillo = 3.0
+
+intervalo_aparicion_seg = 5.0
+cola_maxima_por_carril = 10
+distancia_min_autos_m = 1.7
+velocidad_min_m_s = 8
+velocidad_max_m_s = 15
+
+ancho_auto_m = 3
+largo_auto_m = 5
+
+multiplo_creacion_lejos = 8
+avance_inicial_seg_min = 0.8
+avance_inicial_seg_max = 2.0
+
+autos_iniciales_por_carril = 3
+
+ancho_cebra_m = 6.5
+margen_cebra_px = 4
+grosor_barra_cebra = 10
+espacio_barra_cebra = 10
+
+verde_fondo = (0, 100, 0)
+gris_via = (160, 160, 160)
+gris_est = (140, 140, 140)
 blanco = (255, 255, 255)
-rojo = (220, 70, 70)
-amarillo = (245, 205, 70)
-verde = (70, 200, 110)
+rojo_claro = (220, 70, 70)
+rojo_oscuro = (120, 60, 60)
+amarillo_claro = (245, 205, 70)
+amarillo_oscuro = (120, 110, 60)
+verde_claro = (70, 200, 110)
+verde_oscuro = (60, 100, 60)
 
-colores_autos = [
-    (240, 80, 60), (80, 160, 240),
-    (80, 200, 130), (190, 90, 220),
-    (200, 200, 200)
-]
+ancho_semaforo_px = 20
+alto_semaforo_px = 50
 
-centro_x, centro_y = ancho // 2, alto // 2
-ancho_via = 200
-mitad_via = ancho_via // 2
-ancho_cebra = 48
-desfase_carril = 50
+carpeta_imagenes = os.path.join("assets", "imagen")
 
-recta_vertical = pygame.Rect(centro_x - mitad_via, 0, ancho_via, alto)
-recta_horizontal = pygame.Rect(0, centro_y - mitad_via, ancho, ancho_via)
+ventana = pygame.display.set_mode((ancho_ventana, alto_ventana))
+pygame.display.set_caption("Simulador Vehicular - Cebra y Colas Fix (Adaptativo)")
+reloj = pygame.time.Clock()
 
-pare_oeste = centro_x - mitad_via - ancho_cebra - 6
-pare_este = centro_x + mitad_via + ancho_cebra + 6
-pare_norte = centro_y - mitad_via - ancho_cebra - 6
-pare_sur = centro_y + mitad_via + ancho_cebra + 6
+ancho_carril_px = metros_a_pixeles(ancho_carril_m)
+ancho_estacionar_px = metros_a_pixeles(ancho_estacionar_m)
 
-rutas = {
-    "Norte": ["Sur", "Oeste", "Este"],
-    "Sur": ["Norte", "Este", "Oeste"],
-    "Este": ["Oeste", "Norte", "Sur"],
-    "Oeste": ["Este", "Sur", "Norte"]
+largo_tramo_px = metros_a_pixeles(largo_tramo_m)
+espacio_tramo_px = metros_a_pixeles(espacio_tramo_m)
+
+ancho_auto_px = metros_a_pixeles(ancho_auto_m)
+largo_auto_px = metros_a_pixeles(largo_auto_m)
+
+distancia_min_autos_px = metros_a_pixeles(distancia_min_autos_m)
+required_gap = distancia_min_autos_px + largo_auto_px
+
+vel_min_px_s = int(velocidad_min_m_s * escala_px_por_metro)
+vel_max_px_s = int(velocidad_max_m_s * escala_px_por_metro)
+
+ancho_cebra_px = metros_a_pixeles(ancho_cebra_m)
+
+cruce_x = ancho_ventana // 2
+cruce_y = alto_ventana // 2
+
+ancho_lado_px = ancho_estacionar_px + carriles_por_sentido * ancho_carril_px
+ancho_via_px = 2 * ancho_lado_px
+media_via_px = ancho_via_px // 2
+
+rect_libertador = pygame.Rect(cruce_x - media_via_px, 0, ancho_via_px, alto_ventana)
+rect_america = pygame.Rect(0, cruce_y - media_via_px, ancho_ventana, ancho_via_px)
+
+y_america_sup = cruce_y - media_via_px + ancho_estacionar_px
+y_america_inf = cruce_y + media_via_px - ancho_estacionar_px
+x_lib_izq = cruce_x - media_via_px + ancho_estacionar_px
+x_lib_der = cruce_x + media_via_px - ancho_estacionar_px
+
+linea_pare_oeste = cruce_x - media_via_px - margen_pare_px
+linea_pare_este = cruce_x + media_via_px + margen_pare_px
+linea_pare_norte = cruce_y - media_via_px - margen_pare_px
+linea_pare_sur = cruce_y + media_via_px + margen_pare_px
+
+salida_lib_este = cruce_x + media_via_px + 8
+salida_lib_oeste = cruce_x - media_via_px - 8
+salida_lib_sur = cruce_y + media_via_px + 8
+salida_lib_norte = cruce_y - media_via_px - 8
+
+inter_x_izq = cruce_x - media_via_px
+inter_x_der = cruce_x + media_via_px
+inter_y_sup = cruce_y - media_via_px
+inter_y_inf = cruce_y + media_via_px
+
+cebra_arriba = pygame.Rect(inter_x_izq, inter_y_sup - ancho_cebra_px, ancho_via_px, ancho_cebra_px)
+cebra_abajo = pygame.Rect(inter_x_izq, inter_y_inf, ancho_via_px, ancho_cebra_px)
+cebra_izquierda = pygame.Rect(inter_x_izq - ancho_cebra_px, inter_y_sup, ancho_cebra_px, ancho_via_px)
+cebra_derecha = pygame.Rect(inter_x_der, inter_y_sup, ancho_cebra_px, ancho_via_px)
+
+def construir_centros(inicio, paso, cantidad, sentido_positivo):
+    lista = []
+    i = 0
+    while i < cantidad:
+        if sentido_positivo:
+            lista.append(inicio + int((i + 0.5) * paso))
+        else:
+            lista.append(inicio - int((i + 0.5) * paso))
+        i += 1
+    return lista
+
+america_oe = construir_centros(y_america_sup, ancho_carril_px, carriles_por_sentido, True)
+america_eo = construir_centros(y_america_inf, ancho_carril_px, carriles_por_sentido, False)
+libertador_ns = construir_centros(x_lib_der, ancho_carril_px, carriles_por_sentido, False)
+libertador_sn = construir_centros(x_lib_izq, ancho_carril_px, carriles_por_sentido, True)
+
+def construir_separadores(inicio, paso, cantidad, sentido_positivo):
+    lineas = []
+    i = 1
+    while i < cantidad:
+        if sentido_positivo:
+            lineas.append(inicio + i * paso)
+        else:
+            lineas.append(inicio - i * paso)
+        i += 1
+    return lineas
+
+america_sep = construir_separadores(y_america_sup, ancho_carril_px, carriles_por_sentido, True) \
+            + construir_separadores(y_america_inf, ancho_carril_px, carriles_por_sentido, False)
+
+libertador_sep = construir_separadores(x_lib_izq, ancho_carril_px, carriles_por_sentido, True) \
+               + construir_separadores(x_lib_der, ancho_carril_px, carriles_por_sentido, False)
+
+def cargar_imagen(nombre):
+    ruta = os.path.join(carpeta_imagenes, nombre)
+    try:
+        return pygame.image.load(ruta).convert_alpha()
+    except Exception:
+        img = pygame.Surface((largo_auto_px, ancho_auto_px), pygame.SRCALPHA)
+        pygame.draw.rect(img, (60, 60, 60), img.get_rect(), border_radius=6)
+        pygame.draw.rect(img, (255, 255, 255), img.get_rect(), 2, border_radius=6)
+        return img
+
+sprites = {
+    "n": [cargar_imagen("auto1.png"), cargar_imagen("auto4.png")],
+    "s": [cargar_imagen("auto2.png"), cargar_imagen("auto5.png")],
+    "o": [cargar_imagen("auto3.png"), cargar_imagen("auto7.png")],
+    "e": [cargar_imagen("auto6.png"), cargar_imagen("auto8.png")],
 }
 
-def generar_auto(id_auto, entrada):
-    salida = random.choice(rutas[entrada])
-    velocidad = random.randint(30, 60)
+def escalar_sprites():
+    direcciones = ["n", "s", "o", "e"]
+    for d in direcciones:
+        nuevas = []
+        for img in sprites[d]:
+            if d in ("n", "s"):
+                nuevas.append(pygame.transform.smoothscale(img, (ancho_auto_px, largo_auto_px)))
+            else:
+                nuevas.append(pygame.transform.smoothscale(img, (largo_auto_px, ancho_auto_px)))
+        sprites[d] = nuevas
+
+escalar_sprites()
+
+min_green = 5
+max_green = 50
+time_per_vehicle = 1.3
+reduction_per_opposing_car = 2
+
+per_dir_trigger = 10
+agg_total_trigger = 18
+override_remaining_seconds = 5
+
+fase = 0
+tiempo_en_fase = 0.0
+
+tiempo_verde_america_base = 6
+tiempo_verde_libertador_base = 6
+tiempo_verde_america = 6.0
+tiempo_verde_libertador = 6.0
+
+def estado_semaforo():
+    if fase == 0:
+        return "verde", "rojo"
+    elif fase == 1:
+        return "amarillo", "rojo"
+    elif fase == 2:
+        return "rojo", "verde"
+    else:
+        return "rojo", "amarillo"
+
+def esta_en_verde(direccion):
+    color_america, color_libertador = estado_semaforo()
+    if (direccion in ("e", "o")) and color_america == "verde":
+        return True
+    if (direccion in ("n", "s")) and color_libertador == "verde":
+        return True
+    return False
+
+class Auto:
+    def __init__(self, x_inicial, y_inicial, direccion, vel_px_s):
+        self.x = float(x_inicial)
+        self.y = float(y_inicial)
+        self.direccion = direccion
+        self.vel_px_por_frame = float(vel_px_s) / float(fps)
+        opciones = sprites[direccion]
+        self.img = opciones[random.randint(0, len(opciones) - 1)]
+        self.entro_cruce = False
+
+    def punta_pos(self):
+        mitad_largo = largo_auto_px // 2
+        if self.direccion == "e":
+            return self.x + mitad_largo
+        if self.direccion == "o":
+            return self.x - mitad_largo
+        if self.direccion == "s":
+            return self.y + mitad_largo
+        return self.y - mitad_largo
+
+    def actualizar(self, auto_delante):
+        puede_avanzar = True
+        mitad_largo = largo_auto_px // 2
+        vel = self.vel_px_por_frame
+        if self.direccion == "e":
+            pos_pare = cebra_izquierda.left - 4
+            pos_salida = salida_lib_este
+            punta = self.x + mitad_largo
+        elif self.direccion == "o":
+            pos_pare = cebra_derecha.right + 4
+            pos_salida = salida_lib_oeste
+            punta = self.x - mitad_largo
+        elif self.direccion == "s":
+            pos_pare = cebra_arriba.top - 4
+            pos_salida = salida_lib_sur
+            punta = self.y + mitad_largo
+        else:
+            pos_pare = cebra_abajo.bottom + 4
+            pos_salida = salida_lib_norte
+            punta = self.y - mitad_largo
+        if auto_delante is not None:
+            if self.direccion == "e":
+                if (auto_delante.x - self.x) < required_gap:
+                    puede_avanzar = False
+            elif self.direccion == "o":
+                if (self.x - auto_delante.x) < required_gap:
+                    puede_avanzar = False
+            elif self.direccion == "s":
+                if (auto_delante.y - self.y) < required_gap:
+                    puede_avanzar = False
+            else:
+                if (self.y - auto_delante.y) < required_gap:
+                    puede_avanzar = False
+        if not self.entro_cruce:
+            if not esta_en_verde(self.direccion):
+                if self.direccion in ("e", "s"):
+                    dist = pos_pare - punta
+                else:
+                    dist = punta - pos_pare
+                margen = max(1.0, vel * 1.5)
+                if dist >= 0 and dist <= margen:
+                    puede_avanzar = False
+            if esta_en_verde(self.direccion) and auto_delante is not None:
+                if self.direccion == "e" and punta >= pos_pare and auto_delante.x < (pos_salida + required_gap):
+                    puede_avanzar = False
+                if self.direccion == "o" and punta <= pos_pare and auto_delante.x > (pos_salida - required_gap):
+                    puede_avanzar = False
+                if self.direccion == "s" and punta >= pos_pare and auto_delante.y < (pos_salida + required_gap):
+                    puede_avanzar = False
+                if self.direccion == "n" and punta <= pos_pare and auto_delante.y > (pos_salida - required_gap):
+                    puede_avanzar = False
+        if puede_avanzar:
+            if self.direccion == "e":
+                self.x += vel
+            elif self.direccion == "o":
+                self.x -= vel
+            elif self.direccion == "s":
+                self.y += vel
+            else:
+                self.y -= vel
+            if not self.entro_cruce:
+                if self.direccion == "e" and self.x + mitad_largo >= pos_pare:
+                    if esta_en_verde(self.direccion):
+                        self.entro_cruce = True
+                if self.direccion == "o" and self.x - mitad_largo <= pos_pare:
+                    if esta_en_verde(self.direccion):
+                        self.entro_cruce = True
+                if self.direccion == "s" and self.y + mitad_largo >= pos_pare:
+                    if esta_en_verde(self.direccion):
+                        self.entro_cruce = True
+                if self.direccion == "n" and self.y - mitad_largo <= pos_pare:
+                    if esta_en_verde(self.direccion):
+                        self.entro_cruce = True
+
+    def dibujar(self, surf):
+        rect = self.img.get_rect(center=(int(self.x), int(self.y)))
+        surf.blit(self.img, rect)
+
+entradas = ["oeste", "este", "norte", "sur"]
+colas = {}
+temporizadores = {}
+
+def iniciar_estructuras():
+    for entrada in entradas:
+        colas[entrada] = []
+        temporizadores[entrada] = []
+        for _ in range(carriles_por_sentido):
+            colas[entrada].append([])
+            temporizadores[entrada].append(0.0)
+
+iniciar_estructuras()
+
+def promedio(lista):
+    if len(lista) == 0:
+        return 0
+    return int(sum(lista) / len(lista))
+
+def ajustar_por_ultimo(lista, direccion, x0, y0):
+    if len(lista) > 0:
+        u = lista[-1]
+        if direccion == "e":
+            if x0 > (u.x - required_gap):
+                x0 = u.x - required_gap
+        if direccion == "o":
+            if x0 < (u.x + required_gap):
+                x0 = u.x + required_gap
+        if direccion == "s":
+            if y0 > (u.y - required_gap):
+                y0 = u.y - required_gap
+        if direccion == "n":
+            if y0 < (u.y + required_gap):
+                y0 = u.y + required_gap
+    return x0, y0
+
+def limitar_margen_visible(x0, y0, direccion):
+    margen = 2 * largo_auto_px - 2
+    if direccion == "e" and x0 < -margen:
+        x0 = -margen
+    if direccion == "o" and x0 > ancho_ventana + margen:
+        x0 = ancho_ventana + margen
+    if direccion == "s" and y0 < -margen:
+        y0 = -margen
+    if direccion == "n" and y0 > alto_ventana + margen:
+        y0 = alto_ventana + margen
+    return x0, y0
+
+def posicion_aparicion(entrada, i_carril):
+    d = multiplo_creacion_lejos * largo_auto_px
+    if entrada == "oeste":
+        return cruce_x - media_via_px - d, america_oe[i_carril], "e"
+    if entrada == "este":
+        return cruce_x + media_via_px + d, america_eo[i_carril], "o"
+    if entrada == "norte":
+        return libertador_ns[i_carril], cruce_y - media_via_px - d, "s"
+    else:
+        return libertador_sn[i_carril], cruce_y + media_via_px + d, "n"
+
+def aplicar_avance_inicial(x0, y0, direccion, vel_px_s):
+    t = random.uniform(avance_inicial_seg_min, avance_inicial_seg_max)
+    d = vel_px_s * t
+    if direccion == "e":
+        x0 -= d
+    elif direccion == "o":
+        x0 += d
+    elif direccion == "s":
+        y0 -= d
+    else:
+        y0 += d
+    return limitar_margen_visible(x0, y0, direccion)
+
+def intentar_aparicion(dt):
+    for entrada in entradas:
+        for c in range(carriles_por_sentido):
+            lista = colas[entrada][c]
+            if len(lista) < cola_maxima_por_carril:
+                temporizadores[entrada][c] += dt
+                if temporizadores[entrada][c] >= intervalo_aparicion_seg:
+                    temporizadores[entrada][c] = 0.0
+                    x0, y0, dir0 = posicion_aparicion(entrada, c)
+                    vel = random.randint(int(vel_min_px_s), int(vel_max_px_s))
+                    x0, y0 = aplicar_avance_inicial(x0, y0, dir0, vel)
+                    x0, y0 = ajustar_por_ultimo(lista, dir0, x0, y0)
+                    lista.append(Auto(x0, y0, dir0, vel))
+
+def sembrar_autos_iniciales():
+    lim_x_min = -2 * largo_auto_px + 4
+    lim_x_max = ancho_ventana + 2 * largo_auto_px - 4
+    lim_y_min = -2 * largo_auto_px + 4
+    lim_y_max = alto_ventana + 2 * largo_auto_px - 4
+
+    por = autos_iniciales_por_carril
+
+    for c in range(carriles_por_sentido):
+        x_base = max(linea_pare_oeste - 2 * largo_auto_px, lim_x_min)
+        for i in range(por):
+            x0 = max(x_base - i * required_gap, lim_x_min)
+            y0 = america_oe[c]
+            vel = random.randint(int(vel_min_px_s), int(vel_max_px_s))
+            colas["oeste"][c].append(Auto(x0, y0, "e", vel))
+
+    for c in range(carriles_por_sentido):
+        x_base = min(linea_pare_este + 2 * largo_auto_px, lim_x_max)
+        for i in range(por):
+            x0 = min(x_base + i * required_gap, lim_x_max)
+            y0 = america_eo[c]
+            vel = random.randint(int(vel_min_px_s), int(vel_max_px_s))
+            colas["este"][c].append(Auto(x0, y0, "o", vel))
+
+    for c in range(carriles_por_sentido):
+        y_base = max(linea_pare_norte - 2 * largo_auto_px, lim_y_min)
+        for i in range(por):
+            y0 = max(y_base - i * required_gap, lim_y_min)
+            x0 = libertador_ns[c]
+            vel = random.randint(int(vel_min_px_s), int(vel_max_px_s))
+            colas["norte"][c].append(Auto(x0, y0, "s", vel))
+
+    for c in range(carriles_por_sentido):
+        y_base = min(linea_pare_sur + 2 * largo_auto_px, lim_y_max)
+        for i in range(por):
+            y0 = min(y_base + i * required_gap, lim_y_max)
+            x0 = libertador_sn[c]
+            vel = random.randint(int(vel_min_px_s), int(vel_max_px_s))
+            colas["sur"][c].append(Auto(x0, y0, "n", vel))
+
+passed_america = 0
+passed_libertador = 0
+stats_lock = threading.Lock()
+times = deque(maxlen=300)
+series_existing_america = deque(maxlen=300)
+series_existing_lib = deque(maxlen=300)
+series_passed_america = deque(maxlen=300)
+series_passed_lib = deque(maxlen=300)
+series_stopped_america = deque(maxlen=300)
+series_stopped_lib = deque(maxlen=300)
+last_stats_time = 0.0
+
+def actualizar_lista(lista):
+    global passed_america, passed_libertador
+    i = 0
+    while i < len(lista):
+        auto = lista[i]
+        auto_delante = lista[i - 1] if i > 0 else None
+        auto.actualizar(auto_delante)
+        i += 1
+    nueva = []
+    for a in lista:
+        if (-2 * largo_auto_px < a.x < ancho_ventana + 2 * largo_auto_px) and (-2 * largo_auto_px < a.y < alto_ventana + 2 * largo_auto_px):
+            nueva.append(a)
+        else:
+            with stats_lock:
+                if a.direccion in ("e", "o"):
+                    passed_america += 1
+                else:
+                    passed_libertador += 1
+    return nueva
+
+def actualizar_autos():
+    for entrada in entradas:
+        for c in range(carriles_por_sentido):
+            colas[entrada][c] = actualizar_lista(colas[entrada][c])
+
+def dibujar_autos():
+    for entrada in entradas:
+        for c in range(carriles_por_sentido):
+            for auto in colas[entrada][c]:
+                auto.dibujar(ventana)
+
+def pintar_base():
+    ventana.fill(verde_fondo)
+    pygame.draw.rect(ventana, gris_via, rect_libertador)
+    pygame.draw.rect(ventana, gris_via, rect_america)
+    pygame.draw.rect(ventana, gris_est, (0, cruce_y - media_via_px, ancho_ventana, ancho_estacionar_px))
+    pygame.draw.rect(ventana, gris_est, (0, cruce_y + media_via_px - ancho_estacionar_px, ancho_ventana, ancho_estacionar_px))
+    pygame.draw.rect(ventana, gris_est, (cruce_x - media_via_px, 0, ancho_estacionar_px, alto_ventana))
+    pygame.draw.rect(ventana, gris_est, (cruce_x + media_via_px - ancho_estacionar_px, 0, ancho_estacionar_px, alto_ventana))
+
+def dibujar_dashes_h_segmento(y, x_inicio, x_fin, grosor):
+    if x_fin <= x_inicio:
+        return
+    x = x_inicio
+    while x < x_fin:
+        x2 = x + largo_tramo_px
+        if x2 > x_fin:
+            x2 = x_fin
+        pygame.draw.line(ventana, blanco, (x, y), (x2, y), grosor)
+        x = x2 + espacio_tramo_px
+
+def dibujar_dashes_v_segmento(x, y_inicio, y_fin, grosor):
+    if y_fin <= y_inicio:
+        return
+    y = y_inicio
+    while y < y_fin:
+        y2 = y + largo_tramo_px
+        if y2 > y_fin:
+            y2 = y_fin
+        pygame.draw.line(ventana, blanco, (x, y), (x, y2), grosor)
+        y = y2 + espacio_tramo_px
+
+def pintar_bordes_y_separadores():
+    linea_h_respetando_pare(y_america_sup, grosor_borde_px)
+    linea_h_respetando_pare(y_america_inf, grosor_borde_px)
+    linea_v_respetando_pare(x_lib_izq, grosor_borde_px)
+    linea_v_respetando_pare(x_lib_der, grosor_borde_px)
+    for y in america_sep:
+        linea_h_respetando_pare(y, grosor_separador_px)
+    for x in libertador_sep:
+        linea_v_respetando_pare(x, grosor_separador_px)
+    linea_h_respetando_pare(cruce_y, grosor_separador_px)
+    linea_v_respetando_pare(cruce_x, grosor_separador_px)
+
+def linea_h_respetando_pare(y, grosor):
+    pygame.draw.line(ventana, blanco, (0, y), (linea_pare_oeste - margen_linea_pare, y), grosor)
+    pygame.draw.line(ventana, blanco, (linea_pare_este + margen_linea_pare, y), (ancho_ventana, y), grosor)
+
+def linea_v_respetando_pare(x, grosor):
+    pygame.draw.line(ventana, blanco, (x, 0), (x, linea_pare_norte - margen_linea_pare), grosor)
+    pygame.draw.line(ventana, blanco, (x, linea_pare_sur + margen_linea_pare), (x, alto_ventana), grosor)
+
+def pintar_guias_dentro_de_carril():
+    for y in america_oe:
+        dibujar_dashes_h_segmento(y, 0, linea_pare_oeste - margen_linea_pare, grosor_guia_px)
+        dibujar_dashes_h_segmento(y, linea_pare_este + margen_linea_pare, ancho_ventana, grosor_guia_px)
+    for y in america_eo:
+        dibujar_dashes_h_segmento(y, 0, linea_pare_oeste - margen_linea_pare, grosor_guia_px)
+        dibujar_dashes_h_segmento(y, linea_pare_este + margen_linea_pare, ancho_ventana, grosor_guia_px)
+    for x in libertador_ns:
+        dibujar_dashes_v_segmento(x, 0, linea_pare_norte - margen_linea_pare, grosor_guia_px)
+        dibujar_dashes_v_segmento(x, linea_pare_sur + margen_linea_pare, alto_ventana, grosor_guia_px)
+    for x in libertador_sn:
+        dibujar_dashes_v_segmento(x, 0, linea_pare_norte - margen_linea_pare, grosor_guia_px)
+        dibujar_dashes_v_segmento(x, linea_pare_sur + margen_linea_pare, alto_ventana, grosor_guia_px)
+
+def pintar_cebra_rect(zona, orientacion):
+    if orientacion == "h":
+        pos = zona.top + margen_cebra_px
+        limite = zona.bottom - margen_cebra_px
+        while pos + grosor_barra_cebra <= limite:
+            pygame.draw.rect(ventana, blanco, (zona.left + margen_cebra_px, pos, zona.width - 2 * margen_cebra_px, grosor_barra_cebra))
+            pos += (grosor_barra_cebra + espacio_barra_cebra)
+    else:
+        pos = zona.left + margen_cebra_px
+        limite = zona.right - margen_cebra_px
+        while pos + grosor_barra_cebra <= limite:
+            pygame.draw.rect(ventana, blanco, (pos, zona.top + margen_cebra_px, grosor_barra_cebra, zona.height - 2 * margen_cebra_px))
+            pos += (grosor_barra_cebra + espacio_barra_cebra)
+
+def pintar_cebras():
+    pintar_cebra_rect(cebra_arriba, "v")
+    pintar_cebra_rect(cebra_abajo, "v")
+    pintar_cebra_rect(cebra_izquierda, "h")
+    pintar_cebra_rect(cebra_derecha, "h")
+
+def dibujar_semaforo(px, py, es_vertical, color):
+    if es_vertical:
+        caja = pygame.Rect(px, py, ancho_semaforo_px, alto_semaforo_px)
+    else:
+        caja = pygame.Rect(px, py, alto_semaforo_px, ancho_semaforo_px)
+    pygame.draw.rect(ventana, (0, 0, 0), caja, border_radius=3)
+    radio = 5
+    if color == "rojo":
+        c_rojo = rojo_claro
+        c_amarillo = amarillo_oscuro
+        c_verde = verde_oscuro
+    elif color == "amarillo":
+        c_rojo = rojo_oscuro
+        c_amarillo = amarillo_claro
+        c_verde = verde_oscuro
+    else:
+        c_rojo = rojo_oscuro
+        c_amarillo = amarillo_oscuro
+        c_verde = verde_claro
+    if es_vertical:
+        pygame.draw.circle(ventana, c_rojo, (caja.centerx, caja.top + 12), radio)
+        pygame.draw.circle(ventana, c_amarillo, (caja.centerx, caja.centery), radio)
+        pygame.draw.circle(ventana, c_verde, (caja.centerx, caja.bottom - 12), radio)
+    else:
+        pygame.draw.circle(ventana, c_rojo, (caja.left + 12, caja.centery), radio)
+        pygame.draw.circle(ventana, c_amarillo, (caja.centerx, caja.centery), radio)
+        pygame.draw.circle(ventana, c_verde, (caja.right - 12, caja.centery), radio)
+
+def pintar_semaforos():
+    color_america, color_libertador = estado_semaforo()
+    x_centro_n = promedio(libertador_ns)
+    x_centro_s = promedio(libertador_sn)
+    y_centro_e = promedio(america_oe)
+    y_centro_o = promedio(america_eo)
+    margen = 6
+    dibujar_semaforo(int(x_centro_n - ancho_semaforo_px / 2), int(linea_pare_norte - alto_semaforo_px - margen), True, color_libertador)
+    dibujar_semaforo(int(x_centro_s - ancho_semaforo_px / 2), int(linea_pare_sur + margen), True, color_libertador)
+    dibujar_semaforo(int(linea_pare_oeste - alto_semaforo_px - margen), int(y_centro_e - ancho_semaforo_px / 2), False, color_america)
+    dibujar_semaforo(int(linea_pare_este + margen), int(y_centro_o - ancho_semaforo_px / 2), False, color_america)
+
+mostrar_estacionados = True
+plazas_est = []
+
+def poblar_estacionamiento():
+    if not mostrar_estacionados:
+        return
+    y_arr = cruce_y - media_via_px + ancho_estacionar_px // 2
+    i = 0
+    while i < 5:
+        plazas_est.append(("h", 10 + i * (largo_auto_px + 14), y_arr))
+        i += 1
+    y_aba = cruce_y + media_via_px - ancho_estacionar_px // 2
+    i = 0
+    while i < 5:
+        plazas_est.append(("h", ancho_ventana - 10 - i * (largo_auto_px + 14), y_aba))
+        i += 1
+    x_izq = cruce_x - media_via_px + ancho_estacionar_px // 2
+    i = 0
+    while i < 4:
+        plazas_est.append(("v", x_izq, 10 + i * (largo_auto_px + 14)))
+        i += 1
+    x_der = cruce_x + media_via_px - ancho_estacionar_px // 2
+    i = 0
+    while i < 4:
+        plazas_est.append(("v", x_der, alto_ventana - 10 - i * (largo_auto_px + 14)))
+        i += 1
+
+def dibujar_estacionamiento():
+    if not mostrar_estacionados:
+        return
+    img_h = sprites["e"][0]
+    img_v = sprites["s"][0]
+    i = 0
+    while i < len(plazas_est):
+        ori, cx, cy = plazas_est[i]
+        if ori == "h":
+            ventana.blit(img_h, img_h.get_rect(center=(int(cx), int(cy))))
+        else:
+            ventana.blit(img_v, img_v.get_rect(center=(int(cx), int(cy))))
+        i += 1
+
+def contar_conteos():
+    def cuenta_para(entrada):
+        total = 0
+        for c in range(carriles_por_sentido):
+            for a in colas[entrada][c]:
+                if entrada == "oeste":
+                    pos_pare = cebra_izquierda.left - 4
+                    punta = a.punta_pos()
+                    if punta < pos_pare and not a.entro_cruce:
+                        total += 1
+                elif entrada == "este":
+                    pos_pare = cebra_derecha.right + 4
+                    punta = a.punta_pos()
+                    if punta > pos_pare and not a.entro_cruce:
+                        total += 1
+                elif entrada == "norte":
+                    pos_pare = cebra_arriba.top - 4
+                    punta = a.punta_pos()
+                    if punta < pos_pare and not a.entro_cruce:
+                        total += 1
+                else:
+                    pos_pare = cebra_abajo.bottom + 4
+                    punta = a.punta_pos()
+                    if punta > pos_pare and not a.entro_cruce:
+                        total += 1
+        return total
     return {
-        "id": id_auto,
-        "entrada": entrada,
-        "salida": salida,
-        "velocidad": velocidad,
-        "color": random.choice(colores_autos)
+        "oeste": cuenta_para("oeste"),
+        "este": cuenta_para("este"),
+        "norte": cuenta_para("norte"),
+        "sur": cuenta_para("sur")
     }
 
-def generar_carriles():
-    carriles = {}
-    id_auto = 1
-    for entrada in rutas.keys():
-        num_autos = random.randint(1, 7)
-        autos = [generar_auto(id_auto + i, entrada) for i in range(num_autos)]
-        carriles[entrada] = autos
-        id_auto += num_autos
-    return carriles
-
-carriles = generar_carriles()
-
-def contar_orientaciones(carriles):
-    vertical = len(carriles["Norte"]) + len(carriles["Sur"])
-    horizontal = len(carriles["Este"]) + len(carriles["Oeste"])
-    return vertical, horizontal
-
-vertical_count, horizontal_count = contar_orientaciones(carriles)
-
-if vertical_count >= horizontal_count:
-    semaforos = {"vertical": "verde", "horizontal": "rojo"}
-    duracion_actual = max(vertical_count * 3, 3)
-else:
-    semaforos = {"vertical": "rojo", "horizontal": "verde"}
-    duracion_actual = max(horizontal_count * 3, 3)
-
-tiempo_cambio = time.time()
-
-def actualizar_semaforos(carriles):
-    global tiempo_cambio, duracion_actual, semaforos
-    if time.time() - tiempo_cambio >= duracion_actual:
-        v_count, h_count = contar_orientaciones(carriles)
-        if semaforos["vertical"] == "verde":
-            semaforos["vertical"] = "rojo"
-            semaforos["horizontal"] = "verde"
-            duracion_actual = max(h_count * 3, 3)
-            orientation = "horizontal"
-        else:
-            semaforos["vertical"] = "verde"
-            semaforos["horizontal"] = "rojo"
-            duracion_actual = max(v_count * 3, 3)
-            orientation = "vertical"
-        tiempo_cambio = time.time()
-        print(f"Cambio -> verde: {orientation} | duracion: {duracion_actual}s | v={v_count} h={h_count}")
-
-def dibujar_lineas_centrales():
-    longitud_linea = 20
-    espacios = 20
-    grosor = 5
-    for y in range(0, centro_y - mitad_via - 50, longitud_linea + espacios):
-        pygame.draw.line(ventana, blanco, (centro_x, y), (centro_x, y + longitud_linea), grosor)
-    for y in range(centro_y + mitad_via + 70, alto, longitud_linea + espacios):
-        pygame.draw.line(ventana, blanco, (centro_x, y), (centro_x, y + longitud_linea), grosor)
-    for x in range(0, centro_x - mitad_via - 50, longitud_linea + espacios):
-        pygame.draw.line(ventana, blanco, (x, centro_y), (x + longitud_linea, centro_y), grosor)
-    for x in range(centro_x + mitad_via + 70, ancho, longitud_linea + espacios):
-        pygame.draw.line(ventana, blanco, (x, centro_y), (x + longitud_linea, centro_y), grosor)
-
-def dibujar_cebra(zona: pygame.Rect, orientacion: str):
-    margen = 4
-    grosor = 12
-    espacio = 10
-    if orientacion == "horizontal":
-        y = zona.top + margen
-        while y + grosor <= zona.bottom - margen:
-            pygame.draw.rect(ventana, blanco, (zona.left + margen, y, zona.width - 2 * margen, grosor), border_radius=1)
-            y += grosor + espacio
+def dibujar_panel_info():
+    panel_w = 320
+    panel_h = 230
+    panel_x = ancho_ventana - panel_w - 10
+    panel_y = 10
+    panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
+    s = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+    s.fill((20, 20, 20, 180))
+    ventana.blit(s, (panel_x, panel_y))
+    pygame.draw.rect(ventana, blanco, panel_rect, 2)
+    font = pygame.font.SysFont(None, 18)
+    conteos = contar_conteos()
+    lines = [
+        f"Conteos (antes cebra):",
+        f" Oeste:  {conteos['oeste']} autos",
+        f" Este:   {conteos['este']} autos",
+        f" Norte:  {conteos['norte']} autos",
+        f" Sur:    {conteos['sur']} autos",
+        "",
+        f"America base:      {int(round(tiempo_verde_america_base))}s",
+        f"America ajustado:  {int(tiempo_verde_america)}s",
+        f"Libertador base:   {int(round(tiempo_verde_libertador_base))}s",
+        f"Libertador ajust:  {int(tiempo_verde_libertador)}s",
+        ""
+    ]
+    if fase == 0:
+        restante = max(0, int(tiempo_verde_america - tiempo_en_fase))
+        lines.append(f"Fase: America VERDE")
+        lines.append(f"Queda: {restante}s")
+    elif fase == 1:
+        restante = max(0, int(tiempo_amarillo - tiempo_en_fase))
+        lines.append("Fase: Amarillo America")
+        lines.append(f"Queda: {restante}s")
+    elif fase == 2:
+        restante = max(0, int(tiempo_verde_libertador - tiempo_en_fase))
+        lines.append("Fase: Libertador VERDE")
+        lines.append(f"Queda: {restante}s")
     else:
-        x = zona.left + margen
-        while x + grosor <= zona.right - margen:
-            pygame.draw.rect(ventana, blanco, (x, zona.top + margen, grosor, zona.height - 2 * margen), border_radius=1)
-            x += grosor + espacio
+        restante = max(0, int(tiempo_amarillo - tiempo_en_fase))
+        lines.append("Fase: Amarillo Libertador")
+        lines.append(f"Queda: {restante}s")
+    y = panel_y + 8
+    x = panel_x + 8
+    for ln in lines:
+        img = font.render(ln, True, blanco)
+        ventana.blit(img, (x, y))
+        y += 18
 
-def dibujar_cebras():
-    zona_arriba = pygame.Rect(centro_x - mitad_via, centro_y - mitad_via - ancho_cebra, ancho_via, ancho_cebra)
-    zona_abajo = pygame.Rect(centro_x - mitad_via, centro_y + mitad_via, ancho_via, ancho_cebra)
-    dibujar_cebra(zona_arriba, "vertical")
-    dibujar_cebra(zona_abajo, "vertical")
-    zona_izquierda = pygame.Rect(centro_x - mitad_via - ancho_cebra, centro_y - mitad_via, ancho_cebra, ancho_via)
-    zona_derecha = pygame.Rect(centro_x + mitad_via, centro_y - mitad_via, ancho_cebra, ancho_via)
-    dibujar_cebra(zona_izquierda, "horizontal")
-    dibujar_cebra(zona_derecha, "horizontal")
+def pintar_escena():
+    pintar_base()
+    pintar_bordes_y_separadores()
+    pintar_guias_dentro_de_carril()
+    pintar_cebras()
+    pygame.draw.line(ventana, blanco, (inter_x_izq + 8, linea_pare_norte), (inter_x_der - 8, linea_pare_norte), 5)
+    pygame.draw.line(ventana, blanco, (inter_x_izq + 8, linea_pare_sur), (inter_x_der - 8, linea_pare_sur), 5)
+    pygame.draw.line(ventana, blanco, (linea_pare_oeste, inter_y_sup + 8), (linea_pare_oeste, inter_y_inf - 8), 5)
+    pygame.draw.line(ventana, blanco, (linea_pare_este, inter_y_sup + 8), (linea_pare_este, inter_y_inf - 8), 5)
+    dibujar_estacionamiento()
+    dibujar_autos()
+    pintar_semaforos()
+    dibujar_panel_info()
 
-def dibujar_lineas_pare():
-    pygame.draw.line(ventana, blanco, (pare_oeste, centro_y - mitad_via), (pare_oeste, centro_y + mitad_via), 7)
-    pygame.draw.line(ventana, blanco, (pare_este, centro_y - mitad_via), (pare_este, centro_y + mitad_via), 7)
-    pygame.draw.line(ventana, blanco, (centro_x - mitad_via, pare_norte), (centro_x + mitad_via, pare_norte), 7)
-    pygame.draw.line(ventana, blanco, (centro_x - mitad_via, pare_sur), (centro_x + mitad_via, pare_sur), 7)
+def set_libertador_times(base, ajustado):
+    global tiempo_verde_libertador_base, tiempo_verde_libertador
+    tiempo_verde_libertador_base = base
+    tiempo_verde_libertador = ajustado
 
-def dibujar_semaforo(x, y, vertical=True, color_activo="rojo"):
-    caja = pygame.Rect(x, y, 20, 50) if vertical else pygame.Rect(x, y, 50, 20)
-    pygame.draw.rect(ventana, (0, 0, 0), caja, border_radius=2)
-    radio = 6
-    color_r = rojo if color_activo == "rojo" else (120, 60, 60)
-    color_a = amarillo if color_activo == "amarillo" else (120, 110, 60)
-    color_v = verde if color_activo == "verde" else (60, 100, 60)
-    if vertical:
-        pygame.draw.circle(ventana, color_r, (caja.centerx, caja.top + 10), radio)
-        pygame.draw.circle(ventana, color_a, (caja.centerx, caja.centery), radio)
-        pygame.draw.circle(ventana, color_v, (caja.centerx, caja.bottom - 10), radio)
-    else:
-        pygame.draw.circle(ventana, color_r, (caja.left + 10, caja.centery), radio)
-        pygame.draw.circle(ventana, color_a, (caja.centerx, caja.centery), radio)
-        pygame.draw.circle(ventana, color_v, (caja.right - 10, caja.centery), radio)
+def set_america_times(base, ajustado):
+    global tiempo_verde_america_base, tiempo_verde_america
+    tiempo_verde_america_base = base
+    tiempo_verde_america = ajustado
 
-def dibujar_auto(x, y, direccion, color):
-    largo_auto, ancho_auto = 65, 40
-    if direccion in ("N", "S"):
-        rect = pygame.Rect(x - ancho_auto // 2, y - largo_auto // 2, ancho_auto, largo_auto)
-    else:
-        rect = pygame.Rect(x - largo_auto // 2, y - ancho_auto // 2, largo_auto, ancho_auto)
-    pygame.draw.rect(ventana, color, rect, border_radius=2)
+def avanzar_fase(dt):
+    global fase, tiempo_en_fase, tiempo_verde_america, tiempo_verde_libertador
+    tiempo_en_fase += dt
+    conteos_now = contar_conteos()
+    total_lib = conteos_now["norte"] + conteos_now["sur"]
+    total_america = conteos_now["oeste"] + conteos_now["este"]
+    if fase == 0:
+        if (conteos_now["norte"] >= per_dir_trigger and conteos_now["sur"] >= per_dir_trigger) or (total_lib >= agg_total_trigger):
+            remaining = tiempo_verde_america - tiempo_en_fase
+            if remaining > override_remaining_seconds:
+                tiempo_en_fase = tiempo_verde_america - override_remaining_seconds
+    if fase == 2:
+        if (conteos_now["oeste"] >= per_dir_trigger and conteos_now["este"] >= per_dir_trigger) or (total_america >= agg_total_trigger):
+            remaining = tiempo_verde_libertador - tiempo_en_fase
+            if remaining > override_remaining_seconds:
+                tiempo_en_fase = tiempo_verde_libertador - override_remaining_seconds
+    if fase == 0 and tiempo_en_fase >= tiempo_verde_america:
+        fase = 1
+        tiempo_en_fase = 0.0
+    elif fase == 1 and tiempo_en_fase >= tiempo_amarillo:
+        fase = 2
+        tiempo_en_fase = 0.0
+        conteos = contar_conteos()
+        total_lib = conteos["norte"] + conteos["sur"]
+        total_america = conteos["oeste"] + conteos["este"]
+        base = max(total_lib * time_per_vehicle, min_green)
+        reduction = total_america * reduction_per_opposing_car
+        ajustado = max(min_green, base - min(reduction, base - min_green))
+        ajustado = min(max_green, ajustado)
+        set_libertador_times(base, ajustado)
+    elif fase == 2 and tiempo_en_fase >= tiempo_verde_libertador:
+        fase = 3
+        tiempo_en_fase = 0.0
+    elif fase == 3 and tiempo_en_fase >= tiempo_amarillo:
+        fase = 0
+        tiempo_en_fase = 0.0
+        conteos = contar_conteos()
+        total_america = conteos["oeste"] + conteos["este"]
+        total_lib = conteos["norte"] + conteos["sur"]
+        base = max(total_america * time_per_vehicle, min_green)
+        reduction = total_lib * reduction_per_opposing_car
+        ajustado = max(min_green, base - min(reduction, base - min_green))
+        ajustado = min(max_green, ajustado)
+        set_america_times(base, ajustado)
 
-def dibujar_autos(carriles):
-    for entrada, autos in carriles.items():
-        for i, auto in enumerate(autos):
-            if entrada == "Oeste":
-                x = pare_oeste - 60 * (i + 1)
-                y = centro_y - desfase_carril
-                dibujar_auto(x, y, "E", auto["color"])
-            elif entrada == "Este":
-                x = pare_este + 60 * (i + 1)
-                y = centro_y + desfase_carril
-                dibujar_auto(x, y, "O", auto["color"])
-            elif entrada == "Norte":
-                x = centro_x - desfase_carril
-                y = pare_norte - 60 * (i + 1)
-                dibujar_auto(x, y, "S", auto["color"])
-            elif entrada == "Sur":
-                x = centro_x + desfase_carril
-                y = pare_sur + 60 * (i + 1)
-                dibujar_auto(x, y, "N", auto["color"])
+def snapshot_stats():
+    with stats_lock:
+        existing_america = sum(len(colas["oeste"][c]) + len(colas["este"][c]) for c in range(carriles_por_sentido))
+        existing_lib = sum(len(colas["norte"][c]) + len(colas["sur"][c]) for c in range(carriles_por_sentido))
+        conteos = contar_conteos()
+        stopped_america = conteos["oeste"] + conteos["este"]
+        stopped_lib = conteos["norte"] + conteos["sur"]
+        pa = passed_america
+        pl = passed_libertador
+    return existing_america, existing_lib, pa, pl, stopped_america, stopped_lib
 
-def dibujar_conteo_autos(carriles):
-    font = pygame.font.SysFont(None, 28)
-    y = 10
-    for entrada, autos in carriles.items():
-        texto = f"{entrada}: {len(autos)} autos"
-        img = font.render(texto, True, blanco)
-        ventana.blit(img, (10, y))
-        y += 26
-    restante = max(0, int(duracion_actual - (time.time() - tiempo_cambio)))
-    info = f"Quedan: {restante}s"
-    ventana.blit(font.render(info, True, blanco), (10, y))
+def plot_thread_func():
+    plt.ion()
+    fig, axs = plt.subplots(3, 1, figsize=(8, 8))
+    line_exist_a, = axs[0].plot([], [], label="America")
+    line_exist_l, = axs[0].plot([], [], label="Libertador")
+    axs[0].set_title("Autos existentes")
+    axs[0].legend()
+    line_pass_a, = axs[1].plot([], [], label="America")
+    line_pass_l, = axs[1].plot([], [], label="Libertador")
+    axs[1].set_title("Autos que pasaron (acumulado)")
+    axs[1].legend()
+    line_stop_a, = axs[2].plot([], [], label="America")
+    line_stop_l, = axs[2].plot([], [], label="Libertador")
+    axs[2].set_title("Autos parados (antes cebra)")
+    axs[2].legend()
+    while True:
+        with stats_lock:
+            t = list(times)
+            xa = list(series_existing_america)
+            xl = list(series_existing_lib)
+            pa = list(series_passed_america)
+            pl = list(series_passed_lib)
+            sa = list(series_stopped_america)
+            sl = list(series_stopped_lib)
+        if len(t) == 0:
+            time.sleep(0.3)
+            continue
+        line_exist_a.set_data(t, xa)
+        line_exist_l.set_data(t, xl)
+        axs[0].relim(); axs[0].autoscale_view()
+        line_pass_a.set_data(t, pa)
+        line_pass_l.set_data(t, pl)
+        axs[1].relim(); axs[1].autoscale_view()
+        line_stop_a.set_data(t, sa)
+        line_stop_l.set_data(t, sl)
+        axs[2].relim(); axs[2].autoscale_view()
+        for ax in axs:
+            ax.grid(True)
+        plt.tight_layout()
+        plt.pause(0.3)
 
-def dibujar_escena(carriles):
-    ventana.fill(verde_oscuro)
-    pygame.draw.rect(ventana, gris, recta_vertical)
-    pygame.draw.rect(ventana, gris, recta_horizontal)
-    dibujar_lineas_centrales()
-    dibujar_cebras()
-    dibujar_lineas_pare()
-    dibujar_semaforo(centro_x - mitad_via - 28, centro_y - mitad_via - 64, True, semaforos["vertical"])
-    dibujar_semaforo(centro_x + mitad_via + 8,  centro_y + mitad_via + 8,  True, semaforos["vertical"])
-    dibujar_semaforo(centro_x - mitad_via - 60, centro_y + mitad_via + 8,  False, semaforos["horizontal"])
-    dibujar_semaforo(centro_x + mitad_via + 8,  centro_y - mitad_via - 32, False, semaforos["horizontal"])
-    dibujar_autos(carriles)
-    dibujar_conteo_autos(carriles)
+def main():
+    global tiempo_verde_america_base, tiempo_verde_libertador_base, tiempo_verde_america, tiempo_verde_libertador, tiempo_en_fase, last_stats_time
+    poblar_estacionamiento()
+    sembrar_autos_iniciales()
+    conteos = contar_conteos()
+    total_america = conteos["oeste"] + conteos["este"]
+    total_lib = conteos["norte"] + conteos["sur"]
+    tiempo_verde_america_base = max(total_america * time_per_vehicle, min_green)
+    tiempo_verde_libertador_base = max(total_lib * time_per_vehicle, min_green)
+    reduction_L = total_america * reduction_per_opposing_car
+    tiempo_verde_libertador = min(max_green, max(min_green, tiempo_verde_libertador_base - min(reduction_L, tiempo_verde_libertador_base - min_green)))
+    reduction_A = total_lib * reduction_per_opposing_car
+    tiempo_verde_america = min(max_green, max(min_green, tiempo_verde_america_base - min(reduction_A, tiempo_verde_america_base - min_green)))
+    plot_thread = threading.Thread(target=plot_thread_func, daemon=True)
+    plot_thread.start()
+    last_stats_time = time.time()
+    while True:
+        dt = reloj.tick(fps) / 1000.0
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+        avanzar_fase(dt)
+        intentar_aparicion(dt)
+        actualizar_autos()
+        now = time.time()
+        if now - last_stats_time >= 1.0:
+            last_stats_time = now
+            existing_america, existing_lib, pa, pl, stopped_america, stopped_lib = snapshot_stats()
+            with stats_lock:
+                times.append(now)
+                series_existing_america.append(existing_america)
+                series_existing_lib.append(existing_lib)
+                series_passed_america.append(pa)
+                series_passed_lib.append(pl)
+                series_stopped_america.append(stopped_america)
+                series_stopped_lib.append(stopped_lib)
+        ventana.fill((0,0,0))
+        pintar_escena()
+        pygame.display.flip()
 
-reloj = pygame.time.Clock()
-print(f"Inicial -> verde: {'vertical' if semaforos['vertical']=='verde' else 'horizontal'} | duracion: {duracion_actual}s")
-while True:
-    for evento in pygame.event.get():
-        if evento.type == pygame.QUIT:
-            pygame.quit()
-            sys.exit()
-    actualizar_semaforos(carriles)
-    dibujar_escena(carriles)
-    pygame.display.flip()
-    reloj.tick(30)
+if __name__ == "__main__":
+    main()
