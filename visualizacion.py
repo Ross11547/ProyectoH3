@@ -65,6 +65,20 @@ verde_oscuro = (60, 100, 60)
 
 ancho_semaforo_px = 20
 alto_semaforo_px = 50
+ventana = pygame.display.set_mode((ancho_ventana, alto_ventana))
+
+pygame.display.set_caption("Mi simulación de tráfico")
+
+textura_asfalto = pygame.image.load(os.path.join("asfalto.jpg")).convert()
+textura_asfalto = pygame.transform.smoothscale(textura_asfalto, (80, 80))
+textura_ladrillo = pygame.image.load(os.path.join("ladrillo.jpg")).convert()
+textura_ladrillo = pygame.transform.smoothscale(textura_ladrillo, (50, 50))
+textura_cesped = pygame.image.load("fase.jpg").convert()
+
+ancho_deseado = 80
+alto_deseado = 80
+textura_cesped = pygame.transform.scale(textura_cesped, (ancho_deseado, alto_deseado))
+
 
 carpeta_imagenes = os.path.join("assets", "imagen")
 
@@ -96,8 +110,11 @@ ancho_lado_px = ancho_estacionar_px + carriles_por_sentido * ancho_carril_px
 ancho_via_px = 2 * ancho_lado_px
 media_via_px = ancho_via_px // 2
 
-rect_libertador = pygame.Rect(cruce_x - media_via_px, 0, ancho_via_px, alto_ventana)
-rect_america = pygame.Rect(0, cruce_y - media_via_px, ancho_ventana, ancho_via_px)
+rect_libertador_izq = pygame.Rect(0, cruce_y - media_via_px, cruce_x - media_via_px, ancho_via_px)
+rect_libertador_der = pygame.Rect(cruce_x + media_via_px, cruce_y - media_via_px, ancho_ventana - (cruce_x + media_via_px), ancho_via_px)
+rect_america_arr = pygame.Rect(cruce_x - media_via_px, 0, ancho_via_px, cruce_y - media_via_px)
+rect_america_abj = pygame.Rect(cruce_x - media_via_px, cruce_y + media_via_px, ancho_via_px, alto_ventana - (cruce_y + media_via_px))
+rect_cruce = pygame.Rect(cruce_x - media_via_px, cruce_y - media_via_px, ancho_via_px, ancho_via_px)
 
 y_america_sup = cruce_y - media_via_px + ancho_estacionar_px
 y_america_inf = cruce_y + media_via_px - ancho_estacionar_px
@@ -489,14 +506,58 @@ def dibujar_autos():
             for auto in colas[entrada][c]:
                 auto.dibujar(ventana)
 
+
+'''def dibujar_sombra(ventana, auto):
+    sombra_color = (0, 0, 0, 100)  # Negro con transparencia
+    sombra_superficie = pygame.Surface((auto.rect.width, auto.rect.height // 2), pygame.SRCALPHA)
+    pygame.draw.ellipse(sombra_superficie, sombra_color, sombra_superficie.get_rect())
+    # Posiciona la sombra justo debajo del auto
+    ventana.blit(sombra_superficie, (auto.rect.x, auto.rect.y + auto.rect.height // 2))
+def dibujar_reflejo(ventana, auto):
+    reflejo_color = (255, 255, 255, 80)  # Blanco con transparencia
+    reflejo_superficie = pygame.Surface((auto.rect.width // 2, auto.rect.height // 3), pygame.SRCALPHA)
+    pygame.draw.ellipse(reflejo_superficie, reflejo_color, reflejo_superficie.get_rect())
+    # Posición del reflejo: esquina superior del auto
+    ventana.blit(reflejo_superficie, (auto.rect.x + auto.rect.width // 4, auto.rect.y + auto.rect.height // 10))
+'''
+def dibujar_textura(surf, textura, rect):
+    tw, th = textura.get_size()
+    for x in range(rect.left, rect.right, tw):
+        for y in range(rect.top, rect.bottom, th):
+            surf.blit(textura, (x, y))
+
+
 def pintar_base():
-    ventana.fill(verde_fondo)
-    pygame.draw.rect(ventana, gris_via, rect_libertador)
-    pygame.draw.rect(ventana, gris_via, rect_america)
+    for x in range(0, ventana.get_width(), ancho_deseado):
+        for y in range(0, ventana.get_height(), alto_deseado):
+            ventana.blit(textura_cesped, (x, y))
+    #texturas de ladrillo
+    dibujar_textura(ventana, textura_ladrillo, rect_vereda_arr)
+    dibujar_textura(ventana, textura_ladrillo, rect_vereda_abj)
+    dibujar_textura(ventana, textura_ladrillo, rect_vereda_izq)
+    dibujar_textura(ventana, textura_ladrillo, rect_vereda_der)
+    # textura avenidas
+    dibujar_textura(ventana, textura_asfalto, rect_libertador_izq)
+    dibujar_textura(ventana, textura_asfalto, rect_libertador_der)
+    dibujar_textura(ventana, textura_asfalto, rect_america_arr)
+    dibujar_textura(ventana, textura_asfalto, rect_america_abj)
+
+    pygame.draw.rect(ventana, gris_via, (cruce_x - media_via_px, cruce_y - media_via_px, ancho_via_px, ancho_via_px))
+
+    # Estacionamientos
     pygame.draw.rect(ventana, gris_est, (0, cruce_y - media_via_px, ancho_ventana, ancho_estacionar_px))
     pygame.draw.rect(ventana, gris_est, (0, cruce_y + media_via_px - ancho_estacionar_px, ancho_ventana, ancho_estacionar_px))
     pygame.draw.rect(ventana, gris_est, (cruce_x - media_via_px, 0, ancho_estacionar_px, alto_ventana))
     pygame.draw.rect(ventana, gris_est, (cruce_x + media_via_px - ancho_estacionar_px, 0, ancho_estacionar_px, alto_ventana))
+
+    #veredas
+ancho_vereda = 40
+rect_vereda_arr = pygame.Rect(0, cruce_y - media_via_px - ancho_vereda, ancho_ventana, ancho_vereda)
+rect_vereda_abj = pygame.Rect(0, cruce_y + media_via_px, ancho_ventana, ancho_vereda)
+rect_vereda_izq = pygame.Rect(cruce_x - media_via_px - ancho_vereda, 0, ancho_vereda, alto_ventana)
+rect_vereda_der = pygame.Rect(cruce_x + media_via_px, 0, ancho_vereda, alto_ventana)
+
+
 
 def dibujar_dashes_h_segmento(y, x_inicio, x_fin, grosor):
     if x_fin <= x_inicio:
