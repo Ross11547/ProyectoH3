@@ -214,10 +214,37 @@ forzar_cambio_restante = 5
 fase = 0
 tiempo_en_fase = 0.0
 
-tiempo_verde_america_base = 6
-tiempo_verde_libertador_base = 6
-tiempo_verde_america = 6.0
-tiempo_verde_libertador = 6.0
+tiempo_verde_america_base = 30
+tiempo_verde_libertador_base = 30
+tiempo_verde_america = 30.0
+tiempo_verde_libertador = 30.0
+
+fila_minima_para_reducir = 6
+
+def contar_parados_por_carril():
+    res = {"oeste":[0]*carriles_por_sentido,"este":[0]*carriles_por_sentido,"norte":[0]*carriles_por_sentido,"sur":[0]*carriles_por_sentido}
+    for entrada in ("oeste","este","norte","sur"):
+        for c in range(carriles_por_sentido):
+            total = 0
+            for a in colas[entrada][c]:
+                if entrada == "oeste":
+                    if a.punta_pos() < (cebra_izquierda.left - 4) and not a.entro_cruce:
+                        total += 1
+                elif entrada == "este":
+                    if a.punta_pos() > (cebra_derecha.right + 4) and not a.entro_cruce:
+                        total += 1
+                elif entrada == "norte":
+                    if a.punta_pos() < (cebra_arriba.top - 4) and not a.entro_cruce:
+                        total += 1
+                else:
+                    if a.punta_pos() > (cebra_abajo.bottom + 4) and not a.entro_cruce:
+                        total += 1
+            res[entrada][c] = total
+    return res
+
+def contar_conteos_parados():
+    p = contar_parados_por_carril()
+    return {"oeste": sum(p["oeste"]), "este": sum(p["este"]), "norte": sum(p["norte"]), "sur": sum(p["sur"])}
 
 def estado_semaforo():
     if fase == 0:   return "verde", "rojo"
@@ -500,7 +527,6 @@ def actualizar_graficas():
         fig.canvas.draw_idle()
         fig.canvas.flush_events()
     except Exception:
-
         pass
 
 def dibujar_textura(surf, textura, rect):
@@ -638,7 +664,6 @@ def agregar_arbol(x, y):
     objetos_cesped.append((img_arbol, x, y))
 
 def zona_verde_superior_izquierda():
-
     return pygame.Rect(0, 0, rect_vereda_izq.left, rect_vereda_arr.top)
 
 def zona_verde_superior_derecha():
@@ -758,26 +783,6 @@ def pintar_semaforos():
                      int(y_centro_o - alto_semaforo_px / 2),
                      True, color_america)
 
-def contar_conteos_parados():
-    def cuenta(entrada):
-        total = 0
-        for c in range(carriles_por_sentido):
-            for a in colas[entrada][c]:
-                if entrada == "oeste":
-                    if a.punta_pos() < (cebra_izquierda.left - 4) and not a.entro_cruce:
-                        total += 1
-                elif entrada == "este":
-                    if a.punta_pos() > (cebra_derecha.right + 4) and not a.entro_cruce:
-                        total += 1
-                elif entrada == "norte":
-                    if a.punta_pos() < (cebra_arriba.top - 4) and not a.entro_cruce:
-                        total += 1
-                else:
-                    if a.punta_pos() > (cebra_abajo.bottom + 4) and not a.entro_cruce:
-                        total += 1
-        return total
-    return {"oeste": cuenta("oeste"), "este": cuenta("este"), "norte": cuenta("norte"), "sur": cuenta("sur")}
-
 def dibujar_panel_info():
     panel_w, panel_h = 320, 230
     panel_x, panel_y = ancho_ventana - panel_w - 10, 10
@@ -822,49 +827,61 @@ def dibujar_panel_info():
         ventana.blit(font.render(ln, True, blanco), (panel_x + 8, y))
         y += 18
 
-def set_tiempos_libertador(base, ajustado):
-    global tiempo_verde_libertador_base, tiempo_verde_libertador
-    tiempo_verde_libertador_base = base
-    tiempo_verde_libertador = ajustado
-
-def set_tiempos_america(base, ajustado):
-    global tiempo_verde_america_base, tiempo_verde_america
-    tiempo_verde_america_base = base
-    tiempo_verde_america = ajustado
-
 def avanzar_fase(dt):
     global fase, tiempo_en_fase, tiempo_verde_america, tiempo_verde_libertador
     tiempo_en_fase += dt
-    conteos_now = contar_conteos_parados()
-    total_lib = conteos_now["norte"] + conteos_now["sur"]
-    total_america = conteos_now["oeste"] + conteos_now["este"]
+    parados_por_carril = contar_parados_por_carril()
+    total_lib = sum(parados_por_carril["norte"]) + sum(parados_por_carril["sur"])
+    total_america = sum(parados_por_carril["oeste"]) + sum(parados_por_carril["este"])
+
+    base_a = tiempo_verde_america_base
+    condicion_reduce_a = any(n >= fila_minima_para_reducir for n in parados_por_carril["norte"]) or any(n >= fila_minima_para_reducir for n in parados_por_carril["sur"])
+    if condicion_reduce_a:
+        reduc_a = (sum(parados_por_carril["norte"]) + sum(parados_por_carril["sur"])) * reduccion_por_opuesto
+        tiempo_verde_america = max(min_verde, min(max_verde, base_a - min(reduc_a, base_a - min_verde)))
+    else:
+        tiempo_verde_america = base_a
+
+    base_l = tiempo_verde_libertador_base
+    condicion_reduce_l = any(n >= fila_minima_para_reducir for n in parados_por_carril["oeste"]) or any(n >= fila_minima_para_reducir for n in parados_por_carril["este"])
+    if condicion_reduce_l:
+        reduc_l = (sum(parados_por_carril["oeste"]) + sum(parados_por_carril["este"])) * reduccion_por_opuesto
+        tiempo_verde_libertador = max(min_verde, min(max_verde, base_l - min(reduc_l, base_l - min_verde)))
+    else:
+        tiempo_verde_libertador = base_l
 
     if fase == 0:
-        if (conteos_now["norte"] >= disparador_por_sentido and conteos_now["sur"] >= disparador_por_sentido) or (total_lib >= disparador_total):
+        if (parados_por_carril["norte"][0] >= disparador_por_sentido and parados_por_carril["norte"][1] >= disparador_por_sentido) or (sum(parados_por_carril["norte"]) + sum(parados_por_carril["sur"]) >= disparador_total):
             if (tiempo_verde_america - tiempo_en_fase) > forzar_cambio_restante:
                 tiempo_en_fase = tiempo_verde_america - forzar_cambio_restante
 
     if fase == 2:
-        if (conteos_now["oeste"] >= disparador_por_sentido and conteos_now["este"] >= disparador_por_sentido) or (total_america >= disparador_total):
+        if (parados_por_carril["oeste"][0] >= disparador_por_sentido and parados_por_carril["oeste"][1] >= disparador_por_sentido) or (sum(parados_por_carril["oeste"]) + sum(parados_por_carril["este"]) >= disparador_total):
             if (tiempo_verde_libertador - tiempo_en_fase) > forzar_cambio_restante:
                 tiempo_en_fase = tiempo_verde_libertador - forzar_cambio_restante
 
     if     fase == 0 and tiempo_en_fase >= tiempo_verde_america:     fase, tiempo_en_fase = 1, 0.0
     elif   fase == 1 and tiempo_en_fase >= tiempo_amarillo:
         fase, tiempo_en_fase = 2, 0.0
-        conteos = contar_conteos_parados()
-        base = max((conteos["norte"] + conteos["sur"]) * tiempo_por_auto, min_verde)
-        redu = (conteos["oeste"] + conteos["este"]) * reduccion_por_opuesto
-        ajust = max(min_verde, base - min(redu, base - min_verde)); ajust = min(max_verde, ajust)
-        set_tiempos_libertador(base, ajust)
+        conteos = contar_parados_por_carril()
+        total_america_now = sum(conteos["oeste"]) + sum(conteos["este"])
+        base_l = tiempo_verde_libertador_base
+        if any(n >= fila_minima_para_reducir for n in conteos["oeste"]) or any(n >= fila_minima_para_reducir for n in conteos["este"]):
+            reduc_l = total_america_now * reduccion_por_opuesto
+            tiempo_verde_libertador = max(min_verde, min(max_verde, base_l - min(reduc_l, base_l - min_verde)))
+        else:
+            tiempo_verde_libertador = base_l
     elif   fase == 2 and tiempo_en_fase >= tiempo_verde_libertador:  fase, tiempo_en_fase = 3, 0.0
     elif   fase == 3 and tiempo_en_fase >= tiempo_amarillo:
         fase, tiempo_en_fase = 0, 0.0
-        conteos = contar_conteos_parados()
-        base = max((conteos["oeste"] + conteos["este"]) * tiempo_por_auto, min_verde)
-        redu = (conteos["norte"] + conteos["sur"]) * reduccion_por_opuesto
-        ajust = max(min_verde, base - min(redu, base - min_verde)); ajust = min(max_verde, ajust)
-        set_tiempos_america(base, ajust)
+        conteos = contar_parados_por_carril()
+        total_lib_now = sum(conteos["norte"]) + sum(conteos["sur"])
+        base_a = tiempo_verde_america_base
+        if any(n >= fila_minima_para_reducir for n in conteos["norte"]) or any(n >= fila_minima_para_reducir for n in conteos["sur"]):
+            reduc_a = total_lib_now * reduccion_por_opuesto
+            tiempo_verde_america = max(min_verde, min(max_verde, base_a - min(reduc_a, base_a - min_verde)))
+        else:
+            tiempo_verde_america = base_a
 
 def actualizar_lista(lista):
     global pasaron_america, pasaron_libertador
@@ -915,18 +932,24 @@ def main():
 
     sembrar_autos_iniciales()
 
-    conteos = contar_conteos_parados()
-    total_america = conteos["oeste"] + conteos["este"]
-    total_lib = conteos["norte"] + conteos["sur"]
+    conteos = contar_parados_por_carril()
+    total_america = sum(conteos["oeste"]) + sum(conteos["este"])
+    total_lib = sum(conteos["norte"]) + sum(conteos["sur"])
 
-    tiempo_verde_america_base = max(total_america * tiempo_por_auto, min_verde)
-    tiempo_verde_libertador_base = max(total_lib * tiempo_por_auto, min_verde)
+    tiempo_verde_america_base = 30
+    tiempo_verde_libertador_base = 30
 
-    redu_L = total_america * reduccion_por_opuesto
-    tiempo_verde_libertador = min(max_verde, max(min_verde, tiempo_verde_libertador_base - min(redu_L, tiempo_verde_libertador_base - min_verde)))
+    if any(n >= fila_minima_para_reducir for n in (conteos["oeste"] + conteos["este"])):
+        redu_L = total_america * reduccion_por_opuesto
+        tiempo_verde_libertador = min(max_verde, max(min_verde, tiempo_verde_libertador_base - min(redu_L, tiempo_verde_libertador_base - min_verde)))
+    else:
+        tiempo_verde_libertador = tiempo_verde_libertador_base
 
-    redu_A = total_lib * reduccion_por_opuesto
-    tiempo_verde_america = min(max_verde, max(min_verde, tiempo_verde_america_base - min(redu_A, tiempo_verde_america_base - min_verde)))
+    if any(n >= fila_minima_para_reducir for n in (conteos["norte"] + conteos["sur"])):
+        redu_A = total_lib * reduccion_por_opuesto
+        tiempo_verde_america = min(max_verde, max(min_verde, tiempo_verde_america_base - min(redu_A, tiempo_verde_america_base - min_verde)))
+    else:
+        tiempo_verde_america = tiempo_verde_america_base
 
     iniciar_graficas()
     ultimo_tiempo_stats = time.time()
