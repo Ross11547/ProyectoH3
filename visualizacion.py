@@ -80,11 +80,11 @@ ancho_semaforo_px = 20
 alto_semaforo_px = 50
 
 ventana = pygame.display.set_mode((ancho_ventana, alto_ventana))
-pygame.display.set_caption("Simulador vehicular — versión clara (mejoras de alerta)")
+pygame.display.set_caption("Simulador vehicular — Semana 3")
 reloj = pygame.time.Clock()
 
 last_beep_time = 0.0
-beep_min_interval = 0.12 
+beep_min_interval = 0.12
 
 def cargar_textura(ruta, ancho=None, alto=None, color_relleno=(100, 100, 100)):
     try:
@@ -494,10 +494,6 @@ def play_beep_once():
         pass
 
 def debe_parpadear(color, restante, reduc_until):
-    """
-    Devuelve True solo si el color actual es VERDE y (queda poco tiempo para fin de verde
-    o hay una reducción/alerta activa). Evita parpadeos/sonidos para amarillo/rojo.
-    """
     if color != "verde":
         return False
     return (restante <= blink_threshold) or (time.time() < reduc_until)
@@ -651,8 +647,6 @@ def pintar_bordes_y_separadores():
         linea_h_respetando_pare(y, grosor_separador_px)
     for x in libertador_sep:
         linea_v_respetando_pare(x, grosor_separador_px)
-    linea_h_respetando_pare(cruce_y, grosor_separador_px)
-    linea_v_respetando_pare(cruce_x, grosor_separador_px)
 
 def pintar_guias_dentro_de_carril():
     for y in america_oe:
@@ -714,12 +708,18 @@ img_banquito = cargar_elemento("banquito.png", 40, 20)
 img_farol    = cargar_elemento("farol.png", 18, 90)
 img_arbol    = cargar_elemento("arbol.png", 50, 50)
 
+img_banquito_h = img_banquito
+img_banquito_v = pygame.transform.rotate(img_banquito, 90)
+
 objetos_cesped = []
 
-def agregar_banquito(x, y):
-    objetos_cesped.append((img_banquito, x, y))
+def agregar_banquito(x, y, orient="h"):
+    img = img_banquito_h if orient == "h" else img_banquito_v
+    objetos_cesped.append((img, x, y))
+
 def agregar_farol(x, y):
     objetos_cesped.append((img_farol, x, y))
+
 def agregar_arbol(x, y):
     objetos_cesped.append((img_arbol, x, y))
 
@@ -764,21 +764,60 @@ def puntos_equiespaciados(inicio, fin, n):
         i += 1
     return lista
 
-def colocar_bancos_y_faroles_en_veredas(n_horizontal=4, n_vertical=3, margen=50, separacion=24):
+def equiespaciados_segmento(a, b, n):
+    if n <= 0 or b - a < 2: return []
+    if n == 1: return [int((a + b) / 2)]
+    paso = (b - a) / float(n + 1)
+    return [int(a + (i + 1) * paso) for i in range(n)]
+
+def distribuir_en_dos_segmentos(a1, b1, a2, b2, n):
+    l1 = max(0, b1 - a1); l2 = max(0, b2 - a2)
+    if n <= 0: return [], []
+    if l1 == 0: return [], equiespaciados_segmento(a2, b2, n)
+    if l2 == 0: return equiespaciados_segmento(a1, b1, n), []
+    n1 = round(n * l1 / float(l1 + l2)); n1 = max(0, min(n, n1)); n2 = n - n1
+    return equiespaciados_segmento(a1, b1, n1), equiespaciados_segmento(a2, b2, n2)
+
+
+def colocar_bancos_y_faroles_en_veredas(
+    n_horizontal=3,
+    n_vertical=2,
+    margen=60, separacion=24, margen_cruce=28
+):
 
     for rect in (rect_vereda_arr, rect_vereda_abj):
-        xs = puntos_equiespaciados(rect.left + margen, rect.right - margen, n_horizontal)
+        xs_izq, xs_der = distribuir_en_dos_segmentos(
+            rect.left + margen, inter_x_izq - margen_cruce,
+            inter_x_der + margen_cruce, rect.right - margen,
+            n_horizontal
+        )
+        y = rect.centery
+        for x in xs_izq + xs_der:
+            agregar_banquito(x - separacion, y, orient="h")
+            agregar_farol  (x + separacion, y)
 
-        for x in xs:
-            agregar_banquito(x - separacion, rect.centery)
-            agregar_farol(x + separacion, rect.centery)
+    rect = rect_vereda_izq
+    ys_sup, ys_inf = distribuir_en_dos_segmentos(
+        rect.top + margen, inter_y_sup - margen_cruce,
+        inter_y_inf + margen_cruce, rect.bottom - margen,
+        n_vertical
+    )
+    cx = rect.centerx
+    for y in ys_sup + ys_inf:
+        agregar_banquito(cx - separacion, y, orient="v")
+        agregar_farol  (cx + separacion, y)
 
-    for rect in (rect_vereda_izq, rect_vereda_der):
-        ys = puntos_equiespaciados(rect.top + margen, rect.bottom - margen, n_vertical)
+    rect = rect_vereda_der
+    ys_sup, ys_inf = distribuir_en_dos_segmentos(
+        rect.top + margen, inter_y_sup - margen_cruce,
+        inter_y_inf + margen_cruce, rect.bottom - margen,
+        n_vertical
+    )
+    cx = rect.centerx
+    for y in ys_sup + ys_inf:
+        agregar_farol  (cx - separacion, y)
+        agregar_banquito(cx + separacion, y, orient="v")
 
-        for y in ys:
-            agregar_farol(rect.centerx, y - separacion)
-            agregar_banquito(rect.centerx, y + separacion)
 
 def poblar_cesped():
     objetos_cesped.clear()
@@ -786,11 +825,29 @@ def poblar_cesped():
     arboles_por_zona = 45
     bancos_por_zona = 20
     faroles_por_zona = 15
-    colocar_muchos_en_rect(zona_verde_superior_izquierda(), arboles_por_zona, bancos_por_zona, faroles_por_zona)
-    colocar_muchos_en_rect(zona_verde_superior_derecha(),   arboles_por_zona, bancos_por_zona, faroles_por_zona)
-    colocar_muchos_en_rect(zona_verde_inferior_izquierda(), arboles_por_zona, bancos_por_zona, faroles_por_zona)
-    colocar_muchos_en_rect(zona_verde_inferior_derecha(),   arboles_por_zona, bancos_por_zona, faroles_por_zona)
-    colocar_bancos_y_faroles_en_veredas(n_horizontal=4, n_vertical=3, margen=50, separacion=24)
+    colocar_muchos_en_rect(
+        zona_verde_superior_izquierda(),
+        arboles_por_zona, bancos_por_zona, faroles_por_zona
+    )
+    colocar_muchos_en_rect(
+        zona_verde_superior_derecha(),
+        arboles_por_zona, bancos_por_zona, faroles_por_zona
+    )
+    colocar_muchos_en_rect(
+        zona_verde_inferior_izquierda(),
+        arboles_por_zona, bancos_por_zona,
+        faroles_por_zona
+    )
+    colocar_muchos_en_rect(
+        zona_verde_inferior_derecha(),
+        arboles_por_zona, bancos_por_zona,
+        faroles_por_zona
+    )
+    colocar_bancos_y_faroles_en_veredas(
+        n_horizontal=3,
+        n_vertical=2,
+        margen=60, separacion=24, margen_cruce=28
+    )
 
 def dibujar_objetos_cesped():
     for img, x, y in objetos_cesped:
