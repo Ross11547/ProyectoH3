@@ -1,24 +1,37 @@
-import visualizacion as vz
+# tests/test_dinamica_auto.py
+def test_auto_frena_en_rojo(vis):
+    y = vis.america_oe[0]
+    # punta = pos_pare - 0.1  (apenas antes de la línea)
+    x = vis.cebra_izquierda.left - 4 - (vis.largo_auto_px // 2) - 0.1
+    a = vis.Auto(x, y, "e", vis.vel_min_px_s)
 
-def _frames(auto, lista_delante=None, n=1):
-    for _ in range(n):
-        auto.actualizar(lista_delante[-1] if lista_delante else None)
+    vis.fase = 2          # América rojo
+    vis.tiempo_en_fase = 0.0
+    a.actualizar(None)
 
-def test_auto_frena_en_rojo_y_avanza_en_verde_este():
-    vz.fase = 2  # rojo América, verde Libertador
-    vz.tiempo_en_fase = 0.0
-    assert vz.estado_semaforo() == ("rojo", "verde")
+    # No debe avanzar (o casi nada)
+    assert a.x <= x + 0.1
 
-    vel_px_s = (vz.vel_min_px_s + vz.vel_max_px_s) // 2
-    auto = vz.Auto(vz.linea_pare_oeste - vz.largo_auto_px//2, vz.promedio(vz.america_oe), "e", vel_px_s)
+def test_auto_avanza_en_verde(vis):
+    y = vis.america_oe[0]
+    x = vis.cebra_izquierda.left - 4 - (vis.largo_auto_px//2) - 5
+    a = vis.Auto(x, y, "e", vis.vel_min_px_s)
 
-    x0 = auto.x
-    _frames(auto, n=5)
-    assert auto.x <= x0 + auto.vel_px_por_frame + 1.0
+    # América VERDE => fase 0
+    vis.fase = 0
+    vis.tiempo_en_fase = 0.0
+    old = a.x
+    a.actualizar(None)
+    assert a.x > old  # avanzó
 
-    vz.fase = 0  # verde América
-    vz.tiempo_en_fase = 0.0
-    assert vz.estado_semaforo() == ("verde", "rojo")
+def test_respeta_gap_con_auto_delante(vis):
+    y = vis.america_oe[0]
+    # Auto delantero
+    lead = vis.Auto(300, y, "e", vis.vel_min_px_s)
+    # Auto detrás muy cerca, debería no avanzar
+    tail = vis.Auto(lead.x - (vis.gap_necesario_px - 2), y, "e", vis.vel_min_px_s)
 
-    _frames(auto, n=10)
-    assert auto.x > x0 + 3 * auto.vel_px_por_frame
+    vis.fase = 0  # verde América
+    tail_x = tail.x
+    tail.actualizar(lead)
+    assert tail.x <= tail_x + 0.1  # prácticamente no se mueve
