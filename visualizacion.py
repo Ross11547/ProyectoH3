@@ -43,9 +43,9 @@ grosor_guia_px = 3
 margen_linea_pare = 6
 margen_pare_px = 55
 
-tiempo_amarillo = 3.0
+tiempo_amarillo = 3
 
-intervalo_aparicion_seg = 5.0
+intervalo_aparicion_seg = 5
 cola_maxima_por_carril = 10
 distancia_min_autos_m = 1.7
 velocidad_min_m_s = 8
@@ -56,7 +56,7 @@ largo_auto_m = 5
 
 multiplo_creacion_lejos = 8
 avance_inicial_seg_min = 0.8
-avance_inicial_seg_max = 2.0
+avance_inicial_seg_max = 2
 
 autos_iniciales_por_carril = 3
 
@@ -83,7 +83,7 @@ ventana = pygame.display.set_mode((ancho_ventana, alto_ventana))
 pygame.display.set_caption("Simulador vehicular — Semana 3")
 reloj = pygame.time.Clock()
 
-last_beep_time = 0.0
+last_beep_time = 0
 beep_min_interval = 0.12
 
 def cargar_textura(ruta, ancho=None, alto=None, color_relleno=(100, 100, 100)):
