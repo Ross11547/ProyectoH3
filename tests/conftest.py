@@ -1,27 +1,30 @@
+# tests/conftest.py
 import os
-os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
-
+import sys
 import importlib
+import types
 import pytest
 
-@pytest.fixture(autouse=True)
-def reload_module_and_reset_globals():
-    # Recargar el módulo para empezar limpio cada test
-    if "visualizacion" in importlib.sys.modules:
-        del importlib.sys.modules["visualizacion"]
+# Headless (sin GUI) para pygame y matplotlib
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+os.environ.setdefault("MPLBACKEND", "Agg")
 
+@pytest.fixture
+def vis(monkeypatch):
+
+    proj_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    if proj_root not in sys.path:
+        sys.path.insert(0, proj_root)
+
+    if "visualizacion" in sys.modules:
+        del sys.modules["visualizacion"]
     mod = importlib.import_module("visualizacion")
 
-    # Reset semáforo
+    mod.iniciar_estructuras()
     mod.fase = 0
     mod.tiempo_en_fase = 0.0
+    mod.pasaron_america = 0
+    mod.pasaron_libertador = 0
 
-    # Reset colas/temporizadores
-    for k in mod.colas.keys():
-        for i in range(len(mod.colas[k])):
-            mod.colas[k][i].clear()
-    for k in mod.temporizadores.keys():
-        for i in range(len(mod.temporizadores[k])):
-            mod.temporizadores[k][i] = 0.0
-
-    yield
+    return mod
