@@ -80,7 +80,7 @@ ancho_semaforo_px = 20
 alto_semaforo_px = 50
 
 ventana = pygame.display.set_mode((ancho_ventana, alto_ventana))
-pygame.display.set_caption("Simulador vehicular — Semana 3")
+pygame.display.set_caption("Simulador vehicular — PID control (final)")
 reloj = pygame.time.Clock()
 
 last_beep_time = 0
@@ -211,22 +211,53 @@ sprites_autos = {
 
 min_verde = 5
 max_verde = 50
-tiempo_por_auto = 1.3
-reduccion_por_opuesto = 2
 
+PID_KP = 2.0    
+PID_KI = 0.05   
+PID_KD = 0.8   
+PID_MAX_ADJ = 25.0  
+TOTAL_CYCLE = 60.0  
+
+EARLY_SWITCH_THRESHOLD = 3.0        
+MIN_TIME_BETWEEN_SWITCHES = 3.0    
+
+blink_threshold = 2.0               
+fase = 0
+tiempo_en_fase = 0.0
+tiempo_verde_america_base = TOTAL_CYCLE / 2.0
+tiempo_verde_libertador_base = TOTAL_CYCLE / 2.0
+
+tiempo_verde_america = tiempo_verde_america_base
+tiempo_verde_libertador = tiempo_verde_libertador_base
+
+class PID:
+    def __init__(self, kp, ki, kd, out_min=-PID_MAX_ADJ, out_max=PID_MAX_ADJ):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.integral = 0.0
+        self.prev_error = 0.0
+        self.out_min = out_min
+        self.out_max = out_max
+
+    def update(self, error, dt):
+        if dt <= 0:
+            return 0.0
+        max_int = 1000.0
+        self.integral += error * dt
+        if self.integral > max_int: self.integral = max_int
+        if self.integral < -max_int: self.integral = -max_int
+        derivative = (error - self.prev_error) / dt
+        out = self.kp * error + self.ki * self.integral + self.kd * derivative
+        if out > self.out_max: out = self.out_max
+        if out < self.out_min: out = self.out_min
+        self.prev_error = error
+        return out
+
+pid_controller = PID(PID_KP, PID_KI, PID_KD, -PID_MAX_ADJ, PID_MAX_ADJ)
 disparador_por_sentido = 10
 disparador_total = 18
 forzar_cambio_restante = 5
-
-fase = 0
-tiempo_en_fase = 0.0
-
-tiempo_verde_america_base = 30
-tiempo_verde_libertador_base = 30
-tiempo_verde_america = 30.0
-tiempo_verde_libertador = 30.0
-
-fila_minima_para_reducir = 6
 
 def contar_parados_por_carril():
     res = {"oeste":[0]*carriles_por_sentido,"este":[0]*carriles_por_sentido,"norte":[0]*carriles_por_sentido,"sur":[0]*carriles_por_sentido}
@@ -447,17 +478,15 @@ t0_series = None
 
 graf = None
 
-blink_threshold = 3.0
 blink_interval = 0.5
 blink_acc = 0.0
 blink_state = False
 
-reduc_alert_duration = 6.0
-reduc_alert_until_america = 0.0
-reduc_alert_until_lib = 0.0
-
 prev_tiempo_verde_america = tiempo_verde_america
 prev_tiempo_verde_libertador = tiempo_verde_libertador
+
+last_phase_change_time = time.time()
+last_pid_out = 0.0
 
 beep_sound = None
 def crear_beep_opcional():
@@ -493,11 +522,10 @@ def play_beep_once():
     except Exception:
         pass
 
-def debe_parpadear(color, restante, reduc_until):
+def debe_parpadear(color, restante):
     if color != "verde":
         return False
-    return (restante <= blink_threshold) or (time.time() < reduc_until)
-
+    return (restante > 0) and (restante <= blink_threshold)
 
 def posicionar_figura(fig, x, y):
     try:
@@ -890,8 +918,8 @@ def pintar_semaforos():
     restante_america = max(0.0, tiempo_verde_america - tiempo_en_fase) if color_america == "verde" else 0.0
     restante_lib = max(0.0, tiempo_verde_libertador - tiempo_en_fase) if color_libertador == "verde" else 0.0
 
-    blink_america = debe_parpadear(color_america, restante_america, reduc_alert_until_america)
-    blink_lib = debe_parpadear(color_libertador, restante_lib, reduc_alert_until_lib)
+    blink_america = debe_parpadear(color_america, restante_america)
+    blink_lib = debe_parpadear(color_libertador, restante_lib)
 
     dibujar_semaforo(int(x_centro_n - alto_semaforo_px / 2),
                      int(linea_pare_norte - ancho_semaforo_px - margen),
@@ -908,22 +936,14 @@ def pintar_semaforos():
     dibujar_semaforo(int(linea_pare_este + margen),
                      int(y_centro_o - alto_semaforo_px / 2),
                      True, color_america, blink=blink_america, blink_visible=blink_state)
-
-    if blink_america and (color_america == "verde"):
+    if (blink_america and color_america == "verde") or (blink_lib and color_libertador == "verde"):
         cx = cruce_x
         cy = linea_pare_norte + (linea_pare_sur - linea_pare_norte) // 2
         radio = 10 + (5 if blink_state else 0)
         pygame.draw.circle(ventana, (255, 220, 40) if blink_state else (200, 120, 10), (cx, cy), radio, 3)
-
-    if blink_lib and (color_libertador == "verde"):
-        cx = cruce_x
-        cy = linea_pare_norte + (linea_pare_sur - linea_pare_norte) // 2
-        radio = 10 + (5 if blink_state else 0)
-        pygame.draw.circle(ventana, (255, 220, 40) if blink_state else (200, 120, 10), (cx, cy), radio, 3)
-
 
 def dibujar_panel_info():
-    panel_w, panel_h = 320, 230
+    panel_w, panel_h = 360, 260
     panel_x, panel_y = ancho_ventana - panel_w - 10, 10
     panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
 
@@ -940,11 +960,10 @@ def dibujar_panel_info():
         f" Este:   {conteos['este']} autos",
         f" Norte:  {conteos['norte']} autos",
         f" Sur:    {conteos['sur']} autos",
-        "",
         f"América base:     {int(round(tiempo_verde_america_base))} s",
-        f"América ajustada: {int(round(tiempo_verde_america))} s",
+        f"América activa:   {int(round(tiempo_verde_america))} s",
         f"Libertador base:  {int(round(tiempo_verde_libertador_base))} s",
-        f"Libertador ajust: {int(round(tiempo_verde_libertador))} s",
+        f"Libertador activa:{int(round(tiempo_verde_libertador))} s",
         ""
     ]
 
@@ -961,6 +980,11 @@ def dibujar_panel_info():
         restante = max(0, int(tiempo_amarillo - tiempo_en_fase))
         lineas += ["Fase: Amarillo Libertador", f"Queda: {restante} s"]
 
+    conteos_totales = contar_parados_por_carril()
+    total_lib = sum(conteos_totales["norte"]) + sum(conteos_totales["sur"])
+    total_amer = sum(conteos_totales["oeste"]) + sum(conteos_totales["este"])
+    error = total_lib - total_amer
+    lineas.append("")
     y = panel_y + 8
     for ln in lineas:
         ventana.blit(font.render(ln, True, blanco), (panel_x + 8, y))
@@ -968,72 +992,80 @@ def dibujar_panel_info():
 
 def avanzar_fase(dt):
     global fase, tiempo_en_fase, tiempo_verde_america, tiempo_verde_libertador
+    global tiempo_verde_america_base, tiempo_verde_libertador_base
     global prev_tiempo_verde_america, prev_tiempo_verde_libertador
-    global reduc_alert_until_america, reduc_alert_until_lib
+    global last_phase_change_time, last_pid_out
 
     tiempo_en_fase += dt
     parados_por_carril = contar_parados_por_carril()
     total_lib = sum(parados_por_carril["norte"]) + sum(parados_por_carril["sur"])
     total_america = sum(parados_por_carril["oeste"]) + sum(parados_por_carril["este"])
+    error = float(total_lib - total_america)
+    pid_out = pid_controller.update(error, dt)
+    last_pid_out = pid_out
+    base_nominal = TOTAL_CYCLE / 2.0
+    america_new = base_nominal - pid_out
+    america_new = max(min_verde, min(max_verde, america_new))
+    libertador_new = TOTAL_CYCLE - america_new
+    libertador_new = max(min_verde, min(max_verde, libertador_new))
+    suma = america_new + libertador_new
+    if suma != TOTAL_CYCLE:
+        diff = TOTAL_CYCLE - suma
+        if diff > 0:
+            if america_new < max_verde:
+                add = min(diff, max_verde - america_new)
+                america_new += add
+                diff -= add
+            if diff > 0 and libertador_new < max_verde:
+                add = min(diff, max_verde - libertador_new)
+                libertador_new += add
+                diff -= add
+        else:
+            diff = -diff
+            if america_new > min_verde:
+                sub = min(diff, america_new - min_verde)
+                america_new -= sub
+                diff -= sub
+            if diff > 0 and libertador_new > min_verde:
+                sub = min(diff, libertador_new - min_verde)
+                libertador_new -= sub
+                diff -= sub
 
-    pv_a = tiempo_verde_america
-    pv_l = tiempo_verde_libertador
-
-    base_a = tiempo_verde_america_base
-    condicion_reduce_a = any(n >= fila_minima_para_reducir for n in parados_por_carril["norte"]) or any(n >= fila_minima_para_reducir for n in parados_por_carril["sur"])
-    if condicion_reduce_a:
-        reduc_a = (sum(parados_por_carril["norte"]) + sum(parados_por_carril["sur"])) * reduccion_por_opuesto
-        tiempo_verde_america = max(min_verde, min(max_verde, base_a - min(reduc_a, base_a - min_verde)))
-    else:
-        tiempo_verde_america = base_a
-
-    base_l = tiempo_verde_libertador_base
-    condicion_reduce_l = any(n >= fila_minima_para_reducir for n in parados_por_carril["oeste"]) or any(n >= fila_minima_para_reducir for n in parados_por_carril["este"])
-    if condicion_reduce_l:
-        reduc_l = (sum(parados_por_carril["oeste"]) + sum(parados_por_carril["este"])) * reduccion_por_opuesto
-        tiempo_verde_libertador = max(min_verde, min(max_verde, base_l - min(reduc_l, base_l - min_verde)))
-    else:
-        tiempo_verde_libertador = base_l
+    tiempo_verde_america_base = america_new
+    tiempo_verde_libertador_base = libertador_new
 
     ahora = time.time()
-    if tiempo_verde_america < pv_a:
-        reduc_alert_until_america = ahora + reduc_alert_duration
-
-    if tiempo_verde_libertador < pv_l:
-        reduc_alert_until_lib = ahora + reduc_alert_duration
-
-    if fase == 0:
-        if (parados_por_carril["norte"][0] >= disparador_por_sentido and parados_por_carril["norte"][1] >= disparador_por_sentido) or (sum(parados_por_carril["norte"]) + sum(parados_por_carril["sur"]) >= disparador_total):
-            if (tiempo_verde_america - tiempo_en_fase) > forzar_cambio_restante:
-                tiempo_en_fase = tiempo_verde_america - forzar_cambio_restante
-
-    if fase == 2:
-        if (parados_por_carril["oeste"][0] >= disparador_por_sentido and parados_por_carril["oeste"][1] >= disparador_por_sentido) or (sum(parados_por_carril["oeste"]) + sum(parados_por_carril["este"]) >= disparador_total):
-            if (tiempo_verde_libertador - tiempo_en_fase) > forzar_cambio_restante:
-                tiempo_en_fase = tiempo_verde_libertador - forzar_cambio_restante
-
-    if     fase == 0 and tiempo_en_fase >= tiempo_verde_america:     fase, tiempo_en_fase = 1, 0.0
-    elif   fase == 1 and tiempo_en_fase >= tiempo_amarillo:
+    if tiempo_verde_america_base < prev_tiempo_verde_america:
+        pass
+    if tiempo_verde_libertador_base < prev_tiempo_verde_libertador:
+        pass
+    prev_tiempo_verde_america = tiempo_verde_america_base
+    prev_tiempo_verde_libertador = tiempo_verde_libertador_base
+    if (ahora - last_phase_change_time) >= MIN_TIME_BETWEEN_SWITCHES:
+        if fase == 0:
+            if tiempo_en_fase >= min_verde and pid_out > EARLY_SWITCH_THRESHOLD:
+                fase, tiempo_en_fase = 1, 0.0
+                last_phase_change_time = ahora
+                return
+        if fase == 2:
+            if tiempo_en_fase >= min_verde and pid_out < -EARLY_SWITCH_THRESHOLD:
+                fase, tiempo_en_fase = 3, 0.0
+                last_phase_change_time = ahora
+                return
+    if fase == 0 and tiempo_en_fase >= tiempo_verde_america:
+        fase, tiempo_en_fase = 1, 0.0
+        last_phase_change_time = time.time()
+    elif fase == 1 and tiempo_en_fase >= tiempo_amarillo:
         fase, tiempo_en_fase = 2, 0.0
-        conteos = contar_parados_por_carril()
-        total_america_now = sum(conteos["oeste"]) + sum(conteos["este"])
-        base_l = tiempo_verde_libertador_base
-        if any(n >= fila_minima_para_reducir for n in conteos["oeste"]) or any(n >= fila_minima_para_reducir for n in conteos["este"]):
-            reduc_l = total_america_now * reduccion_por_opuesto
-            tiempo_verde_libertador = max(min_verde, min(max_verde, base_l - min(reduc_l, base_l - min_verde)))
-        else:
-            tiempo_verde_libertador = base_l
-    elif   fase == 2 and tiempo_en_fase >= tiempo_verde_libertador:  fase, tiempo_en_fase = 3, 0.0
-    elif   fase == 3 and tiempo_en_fase >= tiempo_amarillo:
+        tiempo_verde_libertador = tiempo_verde_libertador_base
+        last_phase_change_time = time.time()
+    elif fase == 2 and tiempo_en_fase >= tiempo_verde_libertador:
+        fase, tiempo_en_fase = 3, 0.0
+        last_phase_change_time = time.time()
+    elif fase == 3 and tiempo_en_fase >= tiempo_amarillo:
         fase, tiempo_en_fase = 0, 0.0
-        conteos = contar_parados_por_carril()
-        total_lib_now = sum(conteos["norte"]) + sum(conteos["sur"])
-        base_a = tiempo_verde_america_base
-        if any(n >= fila_minima_para_reducir for n in conteos["norte"]) or any(n >= fila_minima_para_reducir for n in conteos["sur"]):
-            reduc_a = total_lib_now * reduccion_por_opuesto
-            tiempo_verde_america = max(min_verde, min(max_verde, base_a - min(reduc_a, base_a - min_verde)))
-        else:
-            tiempo_verde_america = base_a
+        tiempo_verde_america = tiempo_verde_america_base
+        last_phase_change_time = time.time()
 
 def actualizar_lista(lista):
     global pasaron_america, pasaron_libertador
@@ -1058,7 +1090,6 @@ def actualizar_autos():
 def dibujar_autos():
     for entrada in entradas:
         for c in range(carriles_por_sentido):
-
             for auto in colas[entrada][c]:
                 auto.dibujar(ventana)
 
@@ -1080,29 +1111,10 @@ def pintar_escena():
 
 def main():
     global tiempo_verde_america_base, tiempo_verde_libertador_base, tiempo_verde_america, tiempo_verde_libertador, ultimo_tiempo_stats, t0_series
-    global blink_acc, blink_state, prev_tiempo_verde_america, prev_tiempo_verde_libertador
+    global blink_acc, blink_state, prev_tiempo_verde_america, prev_tiempo_verde_libertador, last_phase_change_time
 
     poblar_cesped()
     sembrar_autos_iniciales()
-
-    conteos = contar_parados_por_carril()
-    total_america = sum(conteos["oeste"]) + sum(conteos["este"])
-    total_lib = sum(conteos["norte"]) + sum(conteos["sur"])
-
-    tiempo_verde_america_base = 30
-    tiempo_verde_libertador_base = 30
-
-    if any(n >= fila_minima_para_reducir for n in (conteos["oeste"] + conteos["este"])):
-        redu_L = total_america * reduccion_por_opuesto
-        tiempo_verde_libertador = min(max_verde, max(min_verde, tiempo_verde_libertador_base - min(redu_L, tiempo_verde_libertador_base - min_verde)))
-    else:
-        tiempo_verde_libertador = tiempo_verde_libertador_base
-
-    if any(n >= fila_minima_para_reducir for n in (conteos["norte"] + conteos["sur"])):
-        redu_A = total_lib * reduccion_por_opuesto
-        tiempo_verde_america = min(max_verde, max(min_verde, tiempo_verde_america_base - min(redu_A, tiempo_verde_america_base - min_verde)))
-    else:
-        tiempo_verde_america = tiempo_verde_america_base
 
     crear_beep_opcional()
 
@@ -1112,6 +1124,8 @@ def main():
 
     prev_tiempo_verde_america = tiempo_verde_america
     prev_tiempo_verde_libertador = tiempo_verde_libertador
+
+    last_phase_change_time = time.time()
 
     while True:
         dt = reloj.tick(fps) / 1000.0
@@ -1132,8 +1146,8 @@ def main():
             restante_america = max(0.0, tiempo_verde_america - tiempo_en_fase) if color_america == "verde" else 0.0
             restante_lib = max(0.0, tiempo_verde_libertador - tiempo_en_fase) if color_libertador == "verde" else 0.0
 
-            blink_america = debe_parpadear(color_america, restante_america, reduc_alert_until_america)
-            blink_lib = debe_parpadear(color_libertador, restante_lib, reduc_alert_until_lib)
+            blink_america = debe_parpadear(color_america, restante_america)
+            blink_lib = debe_parpadear(color_libertador, restante_lib)
 
             if blink_state and (blink_america or blink_lib):
                 play_beep_once()
