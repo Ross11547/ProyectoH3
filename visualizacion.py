@@ -735,14 +735,25 @@ def cargar_elemento(nombre_png, ancho, alto, color_fallback=(200, 200, 200)):
 img_banquito = cargar_elemento("banquito.png", 40, 20)
 img_farol    = cargar_elemento("farol.png", 18, 90)
 img_arbol    = cargar_elemento("arbol.png", 50, 50)
+img_casa = cargar_elemento("casa.png", 120, 90)
 
 img_banquito_h = img_banquito
 img_banquito_v = pygame.transform.rotate(img_banquito, 90)
+
+img_casa_h = cargar_elemento("casa.png", 130, 100)
+img_casa_v = pygame.transform.rotate(img_casa_h, 180)
 
 objetos_cesped = []
 
 def agregar_banquito(x, y, orient="h"):
     img = img_banquito_h if orient == "h" else img_banquito_v
+    objetos_cesped.append((img, x, y))
+
+def agregar_casa(x, y, orient="h", ancho=130, alto=130):
+    if orient == "h":
+        img = pygame.transform.smoothscale(img_casa_h, (ancho, alto))
+    else:
+        img = pygame.transform.smoothscale(img_casa_v, (alto, ancho))
     objetos_cesped.append((img, x, y))
 
 def agregar_farol(x, y):
@@ -850,7 +861,7 @@ def colocar_bancos_y_faroles_en_veredas(
 def poblar_cesped():
     objetos_cesped.clear()
 
-    arboles_por_zona = 45
+    arboles_por_zona = 18
     bancos_por_zona = 20
     faroles_por_zona = 15
     colocar_muchos_en_rect(
@@ -874,8 +885,23 @@ def poblar_cesped():
     colocar_bancos_y_faroles_en_veredas(
         n_horizontal=3,
         n_vertical=2,
-        margen=60, separacion=24, margen_cruce=28
+        margen=60,
+        separacion=24,
+        margen_cruce=28
     )
+
+    zonas = [
+        zona_verde_superior_izquierda(),
+        zona_verde_superior_derecha(),
+        zona_verde_inferior_izquierda(),
+        zona_verde_inferior_derecha()
+    ]
+    for rect in zonas:
+        xs = equiespaciados_segmento(rect.left + 5, rect.right - 5, 1)
+        ys = [int((rect.top + rect.bottom) / 2)]
+        for x in xs:
+            agregar_casa(220, 130, orient="h")
+            agregar_casa(960, 580, orient="v")
 
 def dibujar_objetos_cesped():
     for img, x, y in objetos_cesped:
@@ -942,53 +968,92 @@ def pintar_semaforos():
         radio = 10 + (5 if blink_state else 0)
         pygame.draw.circle(ventana, (255, 220, 40) if blink_state else (200, 120, 10), (cx, cy), radio, 3)
 
+def dibujar_rectangulo_sombreado(surf, rect, radius=12, alpha=190, shadow=(0,0,0,120), offset=4, border=2):
+
+    shadow_s = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+    pygame.draw.rect(shadow_s, shadow, shadow_s.get_rect(), border_radius=radius)
+    surf.blit(shadow_s, (rect.x + offset, rect.y + offset))
+
+    panel_s = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+    panel_s.fill((0,0,0,0))
+    pygame.draw.rect(panel_s, (28, 32, 36, alpha), panel_s.get_rect(), border_radius=radius)
+    surf.blit(panel_s, (rect.x, rect.y))
+
+    pygame.draw.rect(surf, (235, 235, 235), rect, border, border_radius=radius)
+
+def dibujar_barra_de_progreso(surf, x, y, w, h, frac, bg=(60,65,70), fg=(70,200,110)):
+    frac = max(0.0, min(1.0, float(frac)))
+    pygame.draw.rect(surf, bg, (x, y, w, h), border_radius=6)
+    pygame.draw.rect(surf, fg, (x, y, int(w*frac), h), border_radius=6)
+
 def dibujar_panel_info():
-    panel_w, panel_h = 360, 260
-    panel_x, panel_y = ancho_ventana - panel_w - 10, 10
+    panel_w, panel_h = 360, 250
+    panel_x, panel_y = ancho_ventana - panel_w - 12, 12
     panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
+    dibujar_rectangulo_sombreado(ventana, panel_rect, radius=14, alpha=185)
 
-    s = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
-    s.fill((20, 20, 20, 180))
-    ventana.blit(s, (panel_x, panel_y))
-    pygame.draw.rect(ventana, blanco, panel_rect, 2)
+    fuente_titulo = pygame.font.SysFont(None, 22, bold=True)
+    fuente_mono = pygame.font.SysFont("consolas", 18) or pygame.font.SysFont(None, 18)
 
-    font = pygame.font.SysFont(None, 18)
     conteos = contar_conteos_parados()
-    lineas = [
-        f"Conteos (antes cebra):",
-        f" Oeste:  {conteos['oeste']} autos",
-        f" Este:   {conteos['este']} autos",
-        f" Norte:  {conteos['norte']} autos",
-        f" Sur:    {conteos['sur']} autos",
-        f"América base:     {int(round(tiempo_verde_america_base))} s",
-        f"América activa:   {int(round(tiempo_verde_america))} s",
-        f"Libertador base:  {int(round(tiempo_verde_libertador_base))} s",
-        f"Libertador activa:{int(round(tiempo_verde_libertador))} s",
-        ""
-    ]
+    america_base = int(round(tiempo_verde_america_base))
+    america_act = int(round(tiempo_verde_america))
+    libert_base = int(round(tiempo_verde_libertador_base))
+    libert_act = int(round(tiempo_verde_libertador))
 
     if fase == 0:
-        restante = max(0, int(tiempo_verde_america - tiempo_en_fase))
-        lineas += ["Fase: América VERDE", f"Queda: {restante} s"]
+        fase_txt = "América VERDE"
+        restante = max(0, tiempo_verde_america - tiempo_en_fase)
+        dur = max(1e-6, tiempo_verde_america)
+        c_fase = (70, 200, 110)
     elif fase == 1:
-        restante = max(0, int(tiempo_amarillo - tiempo_en_fase))
-        lineas += ["Fase: Amarillo América", f"Queda: {restante} s"]
+        fase_txt = "América AMARILLO"
+        restante = max(0, tiempo_amarillo - tiempo_en_fase)
+        dur = max(1e-6, tiempo_amarillo)
+        c_fase = (245, 205, 70)
     elif fase == 2:
-        restante = max(0, int(tiempo_verde_libertador - tiempo_en_fase))
-        lineas += ["Fase: Libertador VERDE", f"Queda: {restante} s"]
+        fase_txt = "Libertador VERDE"
+        restante = max(0, tiempo_verde_libertador - tiempo_en_fase)
+        dur = max(1e-6, tiempo_verde_libertador)
+        c_fase = (70, 200, 110)
     else:
-        restante = max(0, int(tiempo_amarillo - tiempo_en_fase))
-        lineas += ["Fase: Amarillo Libertador", f"Queda: {restante} s"]
+        fase_txt = "Libertador AMARILLO"
+        restante = max(0, tiempo_amarillo - tiempo_en_fase)
+        dur = max(1e-6, tiempo_amarillo)
+        c_fase = (245, 205, 70)
 
-    conteos_totales = contar_parados_por_carril()
-    total_lib = sum(conteos_totales["norte"]) + sum(conteos_totales["sur"])
-    total_amer = sum(conteos_totales["oeste"]) + sum(conteos_totales["este"])
-    error = total_lib - total_amer
-    lineas.append("")
-    y = panel_y + 8
-    for ln in lineas:
-        ventana.blit(font.render(ln, True, blanco), (panel_x + 8, y))
-        y += 18
+    pad_x = panel_x + 14
+    y = panel_y + 12
+
+    ventana.blit(fuente_titulo.render("Estado del cruce", True, (240, 240, 240)), (pad_x, y))
+    y += 28
+
+    lines = [
+        (f"Oeste:", f"{conteos['oeste']:>3d} autos"),
+        (f"Este:", f"{conteos['este']:>3d} autos"),
+        (f"Norte:", f"{conteos['norte']:>3d} autos"),
+        (f"Sur:", f"{conteos['sur']:>3d} autos"),
+    ]
+    for k, v in lines:
+        ventana.blit(fuente_mono.render(k, True, (210, 210, 210)), (pad_x, y))
+        ventana.blit(fuente_mono.render(v, True, (255, 255, 255)), (pad_x + 110, y))
+        y += 20
+
+    y += 6
+
+    ventana.blit(fuente_mono.render("América (base/act):", True, (210, 210, 210)), (pad_x, y))
+    ventana.blit(fuente_mono.render(f"{america_base:>2d}s / {america_act:>2d}s", True, (255, 255, 255)), (pad_x + 190, y))
+    y += 20
+    ventana.blit(fuente_mono.render("Libert. (base/act):", True, (210, 210, 210)), (pad_x, y))
+    ventana.blit(fuente_mono.render(f"{libert_base:>2d}s / {libert_act:>2d}s", True, (255, 255, 255)), (pad_x + 190, y))
+    y += 26
+
+
+    ventana.blit(fuente_mono.render(f"Fase: {fase_txt}", True, c_fase), (pad_x, y))
+    y += 22
+    dibujar_barra_de_progreso(ventana, pad_x, y, panel_w - 28, 14, (dur - restante) / dur, bg=(55, 60, 65), fg=c_fase)
+    y += 20
+    ventana.blit(fuente_mono.render(f"Queda: {int(restante):>2d} s", True, (235, 235, 235)), (pad_x, y))
 
 def avanzar_fase(dt):
     global fase, tiempo_en_fase, tiempo_verde_america, tiempo_verde_libertador
